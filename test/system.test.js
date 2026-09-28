@@ -18,7 +18,7 @@ test('assembly: every component mounted, every required port connected', () => {
 
 test('logic edges arrive after RC charging plus flight time (nanoseconds)', () => {
   const m = new Machine();
-  m.run(0.002);
+  m.run(0.05); // PSU soft start, buck start-up, MCU boot
   const net = m.nets.get('board.GP2');
   const r = net.receivers[0];
   const tau = (30 + r.R) * r.C;

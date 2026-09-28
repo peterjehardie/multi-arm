@@ -248,6 +248,9 @@ export class HostPC extends Component {
   }
   send(line) { this.lines.push(line); this.pump(); }
   pump() {
+    // The USB serial port only exists once the board's MCU has booted and
+    // announced itself; until then there is nothing to send to.
+    if (!this.connected) return;
     while (this.inFlight < this.window && this.sent < this.lines.length) {
       const line = this.lines[this.sent++];
       this.inFlight++;
@@ -255,6 +258,7 @@ export class HostPC extends Component {
     }
   }
   receive(msg) {
+    if (msg === 'start') { this.connected = true; this.inFlight = 0; this.pump(); }
     if (msg.startsWith('ok')) { this.inFlight = Math.max(0, this.inFlight - 1); this.pump(); }
     else { this.log.push([this.sim.t, msg]); if (this.log.length > 500) this.log.shift(); this.onMessage?.(msg); }
   }
