@@ -19,6 +19,7 @@
 import { ArmKinematics } from './kinematics.js';
 
 const TICK = 1e-3;
+const BUFFER_LINES = 16;
 const STEP_PULSE = 2e-6;
 const DEG = Math.PI / 180;
 const ARM_AXES = ['j1', 'j2', 'j3', 'j4'];
@@ -91,10 +92,13 @@ export class Firmware {
   }
 
   // --------------------------------------------------------------- G-code
+  // The command buffer holds BUFFER_LINES lines. 'ok' is withheld while it is
+  // full, which is what paces the host (flow control).
   onLine(line) {
     this.stats.lines++;
     this.queue.push(line.trim());
-    this.mcu.usbWrite('ok');
+    if (this.queue.length < BUFFER_LINES) this.mcu.usbWrite('ok');
+    else this.okOwed = (this.okOwed ?? 0) + 1;
   }
   static parse(line) {
     const out = { cmd: '', args: {} };
@@ -115,6 +119,7 @@ export class Firmware {
   tick(t) {
     let guard = 0;
     while (!this.current && this.queue.length && guard++ < 20) this.start(this.queue.shift(), t);
+    while (this.okOwed > 0 && this.queue.length < BUFFER_LINES) { this.okOwed--; this.mcu.usbWrite('ok'); }
     const cur = this.current;
     if (cur) {
       const done = cur.update(t);

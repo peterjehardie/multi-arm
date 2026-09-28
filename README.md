@@ -17,10 +17,15 @@ npm test                     # 18 physics checks (about 20 s)
 npm run demo                 # headless: home, heat, print a ring, change tool, mill a slot
 node src/headless/run.js scenarios/demo.gcode --preheated   # skip the heat-up
 node src/headless/run.js scenarios/mill-wax.gcode --stock wax  # pocket a wax block
-npm run serve                # then open http://localhost:8080/web/
+npm run serve                # then open http://localhost:8080/
 ```
 
-In the viewer, press **Load demo**, then **Run**. Click any wire or component to see its live values and a plain-language note on what physics it carries.
+In the viewer, press **Load demo**, then **Run** (space bar also toggles). Click any wire or component, or pick one in the Parts tab, to see its live values, its ports and what they connect to, and a plain-language note on what physics it carries. Other controls:
+- **colour wires by current**: each wire lights up with the current it carries.
+- **stock**: puts a wax, foam or pine block on the plate.
+- **Scope**: plots any four recorded signals (bus voltage, coil currents, gearbox wind-up, tip error, temperatures, extrusion force, spindle current and more).
+
+The physics runs in the page. On a normal machine it keeps up with real time at the "max" speed setting.
 
 ## How the model is built
 
@@ -83,6 +88,7 @@ src/mcu         controller board, MCU peripherals, USB cable, host PC
 src/firmware    firmware and nominal kinematics
 src/machine     spec (the drawings), build (the wiring diagram), machine (step order, recorder)
 src/headless    command-line runner
-web/            browser viewer (three.js vendored)
+web/            browser viewer: app (loop, controls), view3d (scene), inspector, scope, docs (plain-language notes); three.js vendored
+tools/          serve.js (local static server), gen-demo.js (writes scenarios/demo.gcode)
 test/           physics checks
 ```

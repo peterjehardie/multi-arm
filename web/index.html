@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Multi-arm Sim</title>
+  <meta name="description" content="Physically anchored simulation of a DIY robotic arm with a rotating build plate, a hot end and a spindle.">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="./style.css">
+  <script type="importmap">
+    { "imports": { "three": "./vendor/three.module.min.js" } }
+  </script>
+</head>
+<body>
+  <header class="toolbar">
+    <div class="brand"><span class="logo" aria-hidden="true"></span>Multi-arm <span class="muted">physical sim</span></div>
+    <div class="group">
+      <button id="btnRun" class="primary" title="Run / pause (space)">Run</button>
+      <label class="field">speed
+        <select id="speed">
+          <option value="0.1">0.1×</option>
+          <option value="0.25">0.25×</option>
+          <option value="0.5">0.5×</option>
+          <option value="1" selected>1×</option>
+          <option value="max">max</option>
+        </select>
+      </label>
+      <button id="btnDemo">Load demo</button>
+    </div>
+    <div class="group">
+      <button id="btnReset">Reset</button>
+      <label class="check"><input type="checkbox" id="preheated" checked> preheated</label>
+      <label class="field">stock
+        <select id="stock">
+          <option value="">none</option>
+          <option value="wax">wax block</option>
+          <option value="foam">foam block</option>
+          <option value="pine">pine block</option>
+        </select>
+      </label>
+    </div>
+    <div class="group">
+      <label class="check"><input type="checkbox" id="byCurrent"> colour wires by current</label>
+      <label class="check"><input type="checkbox" id="couplings" checked> couplings</label>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="left">
+      <div id="viewport" class="viewport">
+        <div id="hint" class="hint">Press <b>Load demo</b>, then <b>Run</b></div>
+        <div id="problems" class="problems" hidden></div>
+        <div id="legend" class="legend" hidden></div>
+      </div>
+      <div class="scope">
+        <div class="scope-bar">
+          <span class="scope-title">Scope</span>
+          <span class="chan"><select class="ch"></select><span class="rd"></span></span>
+          <span class="chan"><select class="ch"></select><span class="rd"></span></span>
+          <span class="chan"><select class="ch"></select><span class="rd"></span></span>
+          <span class="chan"><select class="ch"></select><span class="rd"></span></span>
+          <label class="field">window
+            <select id="scopeWin">
+              <option value="1">1 s</option>
+              <option value="5" selected>5 s</option>
+              <option value="20">20 s</option>
+            </select>
+          </label>
+        </div>
+        <canvas id="scope"></canvas>
+      </div>
+    </section>
+
+    <aside class="panel">
+      <nav class="tabs" role="tablist">
+        <button class="tab active" data-tab="inspector" role="tab">Inspector</button>
+        <button class="tab" data-tab="console" role="tab">Console <span id="logBadge" class="badge" hidden></span></button>
+        <button class="tab" data-tab="parts" role="tab">Parts</button>
+      </nav>
+      <div class="tabpane active" id="tab-inspector"><div id="inspector" class="inspector"></div></div>
+      <div class="tabpane" id="tab-console">
+        <div id="log" class="log"></div>
+        <form id="gform" class="gform" autocomplete="off">
+          <input id="gline" type="text" placeholder="G-code, e.g. G28  or  M105" spellcheck="false">
+          <button type="submit">Send</button>
+        </form>
+      </div>
+      <div class="tabpane" id="tab-parts">
+        <input id="partsFilter" class="filter" type="search" placeholder="Filter parts and connections">
+        <div id="parts" class="parts"></div>
+      </div>
+    </aside>
+  </main>
+
+  <footer class="status" id="status">
+    <span><i>t</i><b id="st-t">0.000 s</b></span>
+    <span><i>real-time</i><b id="st-rtf">—</b></span>
+    <span><i>hot end</i><b id="st-hot">—</b></span>
+    <span><i>bed</i><b id="st-bed">—</b></span>
+    <span><i>tool</i><b id="st-tool">—</b></span>
+    <span><i>tip error</i><b id="st-tip">—</b></span>
+    <span><i>spindle</i><b id="st-rpm">—</b></span>
+    <span><i>PSU</i><b id="st-psu">—</b></span>
+    <span><i>homed</i><b id="st-homed">—</b></span>
+    <span><i>queue</i><b id="st-queue">—</b></span>
+  </footer>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

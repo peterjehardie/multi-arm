@@ -75,6 +75,7 @@ export class Turntable extends Component {
     this.theta = 0; this.omega = 0; this.extTau = 0;
     this.axis = this.addPort('axis', 'rot', 'joint');
     this.axis.theta = 0; this.axis.omega = 0; this.axis.tau = 0;
+    this.axis.worldPos = () => [this.center[0], this.center[1], this.center[2] - 0.02];
     this.updateBody();
   }
   updateBody() {

@@ -53,6 +53,8 @@ export class ArmModel extends Component {
     this.jointPorts = spec.joints.map((j, i) => {
       const p = this.addPort(j.name, 'rot', 'joint');
       p.theta = this.q[i]; p.omega = 0; p.tau = 0;
+      // A joint port sits on the joint axis, at the origin of the link it moves.
+      p.worldPos = () => (this.frames ? this.frames[i].p : null);
       return p;
     });
     this.extTau = new Float64Array(this.n);   // from forces at the tool
