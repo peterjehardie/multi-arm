@@ -27,3 +27,11 @@
 **Workpiece representation.** A height map (one height per 0.4 mm cell, in the plate's rotating frame) serves both printing and milling. Voxels and multi-direction height maps (tri-dexel) were considered and deferred on memory and speed grounds. Consequence: no undercuts, and cutting assumes a near-vertical tool.
 
 **Spindle speed.** Open-loop PWM with a nominal 9000 rpm maximum gives about 10,200 rpm at 8000 rpm commanded. This was left as is, because an uncalibrated open-loop spindle behaves the same way. A tachometer is a candidate addition.
+
+**Planner.** The first planner stopped fully at the end of every G-code segment (exact stop). It was replaced by a one-move look-ahead: corner speed is set by junction deviation (0.02 mm) and capped so the next move can still stop within its own length. A full multi-move backward pass was not attempted.
+
+**Polar-mode move length.** The derived plate rotation had been counted in the move length (at a 100 mm radius), so polar prints ran about 8× slower than the programmed feed. It was also counted as a commanded rotation, which disabled blending. Polar moves are now timed by the tool path alone. The demo went from 389 s to 216 s.
+
+**Thermal-runaway seed.** Runaway protection was seeded with a temperature that had not been read yet (NaN). As a result, normal bed heating tripped a false fault after 120 s. It is now seeded on the first valid reading.
+
+**Supply-network lookups.** Node voltages were looked up by building a string key on every call, which took about 11 % of run time. The node index is now cached on the port, making the sim about 25 % faster.
