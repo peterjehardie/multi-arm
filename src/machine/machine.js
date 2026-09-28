@@ -244,6 +244,7 @@ export function firmwareConfig(spec) {
     homingOrder: spec.homing.order,
     restPose: spec.restPose,
     accel: 0.6,
+    junctionDeviation: 0.02e-3,
     rapid: 2400,
     changeFeed: 2400,
     rack: spec.rack,

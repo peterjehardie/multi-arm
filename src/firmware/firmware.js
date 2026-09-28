@@ -125,6 +125,7 @@ export class Firmware {
   start(line, t) {
     const { cmd, args } = Firmware.parse(line);
     const need = (ok) => { if (!ok) this.msg(`error: not homed, ignoring ${line}`); return ok; };
+    if (cmd !== 'G0' && cmd !== 'G1') { this.vCarry = 0; this.tCarry = null; }
     switch (cmd) {
       case 'G0': case 'G1': if (need(this.homed)) this.startLinear(args, cmd === 'G0', t); break;
       case 'G4': {
@@ -210,8 +211,8 @@ export class Firmware {
     return true;
   }
 
-  startLinear(args, rapid, t) {
-    const p0 = { ...this.pos };
+  // Target pose of a G0/G1 given the pose it starts from.
+  targetOf(args, p0) {
     const mm = (v) => v / 1000;
     const p1 = { ...p0 };
     for (const [k, key] of [['X', 'x'], ['Y', 'y'], ['Z', 'z']])
@@ -219,6 +220,37 @@ export class Firmware {
     if (args.C !== undefined) p1.c = args.C * DEG;
     if (args.A !== undefined) p1.a = args.A * DEG;
     if (args.E !== undefined) p1.e = this.mode.absE ? mm(args.E) : p0.e + mm(args.E);
+    return p1;
+  }
+
+  // Look-ahead of one move: how fast may the tool pass the corner between
+  // this move and the next queued one? (Junction deviation, as in common
+  // printer firmware, capped so the next move can still stop in its length.)
+  junctionSpeed(p0, p1, v1, rapid) {
+    const next = this.queue[0];
+    if (!next || !/^G[01](\s|$)/i.test(next)) return 0;
+    const { cmd, args } = Firmware.parse(next);
+    if (args.C !== undefined || args.A !== undefined) return 0;
+    const p2 = this.targetOf(args, p1);
+    const d1 = [p1.x - p0.x, p1.y - p0.y, p1.z - p0.z], d2 = [p2.x - p1.x, p2.y - p1.y, p2.z - p1.z];
+    const L1 = Math.hypot(...d1), L2 = Math.hypot(...d2);
+    if (L1 < 1e-6 || L2 < 1e-6) return 0;
+    const F2 = cmd === 'G0' ? this.cfg.rapid : (args.F ?? this.feed ?? 1200);
+    const cosT = -(d1[0] * d2[0] + d1[1] * d2[1] + d1[2] * d2[2]) / (L1 * L2);
+    const a = this.cfg.accel;
+    let vj = Math.min(v1, F2 / 60 / 1000, Math.sqrt(2 * a * L2));
+    if (cosT > 0.999) return 0; // reversal
+    if (cosT > -0.999999) {
+      const sh = Math.sqrt(0.5 * (1 - cosT));
+      vj = Math.min(vj, Math.sqrt((a * this.cfg.junctionDeviation * sh) / (1 - sh)));
+    }
+    void rapid;
+    return vj;
+  }
+
+  startLinear(args, rapid, t) {
+    const p0 = { ...this.pos };
+    const p1 = this.targetOf(args, p0);
     if (args.F !== undefined) this.feed = args.F;
     const F = rapid ? this.cfg.rapid : (this.feed ?? 1200);
     const polar = this.polar && args.C === undefined;
@@ -233,16 +265,24 @@ export class Firmware {
       [p0.x + s * (p1.x - p0.x), p0.y + s * (p1.y - p0.y), p0.z + s * (p1.z - p0.z)],
       cAt(s), p0.a + s * (p1.a - p0.a), p0.e + s * (p1.e - p0.e));
     const L = Math.hypot(p1.x - p0.x, p1.y - p0.y, p1.z - p0.z);
-    const Lrot = Math.max(Math.abs(p1.c - p0.c), Math.abs(p1.a - p0.a)) * 0.1;
+    // Commanded rotations count toward the move length (at a 100 mm radius);
+    // a plate angle derived by polar mode does not, the tool path does.
+    const Lrot = Math.max(polar ? 0 : Math.abs(p1.c - p0.c), Math.abs(p1.a - p0.a)) * 0.1;
     const Le = Math.abs(p1.e - p0.e);
     const len = Math.max(L, Lrot, L > 1e-7 || Lrot > 1e-7 ? 0 : Le);
     // Check the whole path is reachable and inside joint limits.
     for (let k = 0; k <= 8; k++) {
       const q = eval_(k / 8);
-      if (!q || !this.withinLimits(q)) { this.msg(`error: move out of reach, skipped (${p1.x * 1e3},${p1.y * 1e3},${p1.z * 1e3})`); return; }
+      if (!q || !this.withinLimits(q)) {
+        this.msg(`error: move out of reach, skipped (${p1.x * 1e3},${p1.y * 1e3},${p1.z * 1e3})`);
+        this.vCarry = 0;
+        return;
+      }
     }
     this.pos = p1;
-    this.runMove(eval_, len, F / 60 / 1000, this.cfg.accel, t);
+    const vmax = F / 60 / 1000;
+    const vEnd = L > 1e-6 && args.C === undefined && args.A === undefined ? this.junctionSpeed(p0, p1, vmax, rapid) : 0;
+    this.runMove(eval_, len, vmax, this.cfg.accel, t, null, vEnd);
   }
 
   // Plate angle that brings work point (x, y) onto the line from the plate
@@ -273,9 +313,13 @@ export class Firmware {
     this.runMove(eval_, len, (F ?? 3000) / 60 / 1000, this.cfg.accel, t, () => this.syncPosFromJoints());
   }
 
-  // Trapezoidal velocity profile along a path parameter s in [0,1].
-  runMove(eval_, len, vmax, amax, t, onDone) {
+  // Trapezoidal velocity profile along a path parameter s in [0,1], starting
+  // at the speed the previous move handed over and ending at vEnd (m/s).
+  runMove(eval_, len, vmax, amax, t, onDone, vEnd = 0) {
     if (!this.enabled) this.enable(true);
+    const v0m = this.vCarry ?? 0;
+    const tCarry = this.tCarry;
+    this.vCarry = 0; this.tCarry = null;
     if (len < 1e-9) { onDone?.(); return; }
     // Limit speed so no joint exceeds its maximum rate.
     const dqds = {};
@@ -283,31 +327,40 @@ export class Firmware {
       const q = eval_(k / 8), qp = eval_((k - 1) / 8);
       for (const n of Object.keys(q)) dqds[n] = Math.max(dqds[n] ?? 0, Math.abs(q[n] - qp[n]) * 8);
     }
-    let v = vmax / len, a = amax / len; // in s units
+    let v = vmax / len;
+    const a = amax / len; // everything below in units of s (path fraction)
     for (const [n, d] of Object.entries(dqds)) {
       const wmax = this.cfg.maxJointSpeed[n];
       if (wmax && d > 1e-9) v = Math.min(v, wmax / d);
     }
-    const tAcc = v / a;
-    let T, vPeak = v;
-    if (a * tAcc * tAcc >= 1) { const ta = Math.sqrt(1 / a); vPeak = a * ta; T = 2 * ta; }
-    else T = 2 * tAcc + (1 - a * tAcc * tAcc) / v;
-    const ta = vPeak / a;
+    const v0 = Math.min(v0m / len, v);
+    let v1 = Math.min(vEnd / len, v, Math.sqrt(v0 * v0 + 2 * a));
+    const vp = Math.max(v0, v1, Math.min(v, Math.sqrt(a + 0.5 * (v0 * v0 + v1 * v1))));
+    const d1 = (vp * vp - v0 * v0) / (2 * a), d3 = (vp * vp - v1 * v1) / (2 * a);
+    const d2 = Math.max(0, 1 - d1 - d3);
+    const t1 = (vp - v0) / a, t2 = d2 / vp, t3 = (vp - v1) / a;
+    const T = t1 + t2 + t3;
     const sAt = (tt) => {
       if (tt <= 0) return 0;
       if (tt >= T) return 1;
-      if (tt < ta) return 0.5 * a * tt * tt;
-      if (tt > T - ta) { const r = T - tt; return 1 - 0.5 * a * r * r; }
-      return 0.5 * a * ta * ta + vPeak * (tt - ta);
+      if (tt < t1) return v0 * tt + 0.5 * a * tt * tt;
+      if (tt < t1 + t2) return d1 + vp * (tt - t1);
+      const r = tt - t1 - t2;
+      return Math.min(1, d1 + d2 + vp * r - 0.5 * a * r * r);
     };
-    const t0 = t;
+    // A blended move starts exactly where the previous one ended in time.
+    const t0 = v0 > 0 && tCarry != null && tCarry <= t + 1e-9 && tCarry > t - 3 * TICK ? tCarry : t;
     this.stats.moves++;
     this.current = {
       update: (tt) => {
         const s = sAt(tt + TICK - t0);
         const q = eval_(s);
         if (q) this.stepTo(q, tt);
-        if (tt + TICK - t0 >= T) { onDone?.(); return true; }
+        if (tt + TICK - t0 >= T) {
+          if (v1 > 0) { this.vCarry = v1 * len; this.tCarry = t0 + T; }
+          onDone?.();
+          return true;
+        }
         return false;
       },
     };
