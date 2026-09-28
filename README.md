@@ -16,6 +16,7 @@ Requires Node 18 or later. There is nothing to install.
 npm test                     # 18 physics checks (about 20 s)
 npm run demo                 # headless: home, heat, print a ring, change tool, mill a slot
 node src/headless/run.js scenarios/demo.gcode --preheated   # skip the heat-up
+node src/headless/run.js scenarios/mill-wax.gcode --stock wax  # pocket a wax block
 npm run serve                # then open http://localhost:8080/web/
 ```
 
