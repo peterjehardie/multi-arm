@@ -27,6 +27,7 @@ The premise is that accurate enough physics makes the learning transfer. The dem
 
 ### 3. Software structure next steps that were being weighed
 - Move the physics into a Web Worker, so the viewer stays smooth when the sim runs slower than real time.
+- Viewer hooks still missing on the core side: a `shape` hint on components (the viewer guesses discs and cylinders); a real place for room air (convection lines are drawn as stubs); ever-increasing indices on the plant and host logs; and a sample counter on the recorder, so the scope can skip redraws.
 - Multi-move look-ahead (a backward pass over the whole queue). Only one move ahead is blended today.
 - Calibration exercises for learners: measuring switch offsets and link lengths, bed height mapping, PID autotune.
 - Fault injection: a loose crimp, a dirty pogo pin, an undersized wire, a failed thermistor, lost steps.

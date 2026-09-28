@@ -35,3 +35,9 @@
 **Thermal-runaway seed.** Runaway protection was seeded with a temperature that had not been read yet (NaN). As a result, normal bed heating tripped a false fault after 120 s. It is now seeded on the first valid reading.
 
 **Supply-network lookups.** Node voltages were looked up by building a string key on every call, which took about 11 % of run time. The node index is now cached on the port, making the sim about 25 % faster.
+
+**Power-on inrush.** Without a soft start, the PSU charged about 5000 µF instantly, showing roughly 1400 A for one step. A 20 ms output ramp, as real switch-mode supplies have, brings the peak to about 12 A. Side effect: the MCU now boots about 5 ms after power-on, and a G-code line sent earlier was lost. The host now waits for the board's `start` message, the way a USB serial port only appears once the device runs.
+
+**Command buffer.** The firmware accepted the whole G-code file at once, because it acknowledged every line immediately. It now holds 16 lines and withholds `ok` while full, which paces the host as real firmware does.
+
+**Viewer.** Physics runs in the page (requestAnimationFrame with a 12 ms budget per frame). Headless Chromium with software rendering manages only about 0.2× real time, which is a rendering limit, not a physics one. A Web Worker split remains an option.
