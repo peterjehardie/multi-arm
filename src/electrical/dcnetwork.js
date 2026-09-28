@@ -71,10 +71,14 @@ export class DCNetwork {
 
   vOf(i) { return i < 0 ? 0 : this.v[i]; }
   voltage(port) {
-    const k = DCNetwork.key(port);
-    if (k === this.refKey) return 0;
-    const i = this.keyToIndex.get(k);
-    return i === undefined ? NaN : this.v[i];
+    let i = port.dcIndex;
+    if (i === undefined) {
+      // Resolve once and remember on the port (key building is slow in the hot loop).
+      const k = DCNetwork.key(port);
+      i = k === this.refKey ? -1 : this.keyToIndex.get(k) ?? null;
+      port.dcIndex = i;
+    }
+    return i === null ? NaN : i < 0 ? 0 : this.v[i];
   }
   // Voltage between two ports (p relative to n).
   across(p, n) { return this.voltage(p) - this.voltage(n); }
