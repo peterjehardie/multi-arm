@@ -4,7 +4,7 @@
 
 ## State when the session stopped
 - A working demo exists. The physics core is in `src/`, a headless runner in `src/headless/run.js`, a browser viewer in `web/`, and 18 physics tests in `test/`.
-- `scenarios/demo.gcode` runs end to end at about 1.2× real time in Node. It homes the arm, picks up the hot end, prints a 4-layer ring with the plate turning (polar mode), changes to the spindle, mills a slot through the ring, and returns the tool. The tip error stays around 0.4 mm, coming from tolerances and gravity wind-up.
+- `scenarios/demo.gcode` runs end to end in about 216 s of simulated time, at about 1.5× real time in Node. It homes the arm, picks up the hot end, prints a 4-layer ring with the plate turning (polar mode), changes to the spindle, mills a slot through the ring, and returns the tool. The tip error stays around 0.4 mm, coming from tolerances and gravity wind-up.
 - The core idea in code: components only touch their own ports. Energy and information move only through connections that exist physically: wires, gearboxes, thermal contacts, cams and linkages, pogo pins, a slip ring, and process contacts. `Assembly.validate()` reports floating ports and unmounted parts.
 
 ## Where the work was heading
@@ -27,7 +27,7 @@ The premise is that accurate enough physics makes the learning transfer. The dem
 
 ### 3. Software structure next steps that were being weighed
 - Move the physics into a Web Worker, so the viewer stays smooth when the sim runs slower than real time.
-- Planner lookahead with junction blending. Every G-code segment currently ends in a full stop, which makes printed curves jerky.
+- Multi-move look-ahead (a backward pass over the whole queue). Only one move ahead is blended today.
 - Calibration exercises for learners: measuring switch offsets and link lengths, bed height mapping, PID autotune.
 - Fault injection: a loose crimp, a dirty pogo pin, an undersized wire, a failed thermistor, lost steps.
 - Scenario library: bed-heating power budget, ground-loop demonstration, resonance of the arm, milling chatter.
