@@ -5,7 +5,7 @@
   "description": "Exploration demo: physically anchored simulation of a DIY robotic arm with a rotating build plate, additive and subtractive tools.",
   "type": "module",
   "scripts": {
-    "test": "node --test test/",
+    "test": "node --test test/*.test.js",
     "serve": "node tools/serve.js",
     "demo": "node src/headless/run.js scenarios/demo.gcode"
   },

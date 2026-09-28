@@ -465,6 +465,7 @@ export class Firmware {
           h.prevErr = err;
           duty = err > h.band ? 1 : Math.max(0, Math.min(1, kp * err + ki * h.integ + kd * d));
           // Thermal runaway: heating hard but temperature not rising.
+          if (!Number.isFinite(h.runaway.T)) h.runaway = { t, T: h.temp };
           if (err > 10 && duty > 0.9) {
             if (h.temp > h.runaway.T + 2) h.runaway = { t, T: h.temp };
             else if (t - h.runaway.t > h.runawayTime) h.fault = 'THERMAL RUNAWAY';
