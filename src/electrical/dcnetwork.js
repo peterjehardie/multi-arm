@@ -84,7 +84,14 @@ export class DCNetwork {
   across(p, n) { return this.voltage(p) - this.voltage(n); }
 
   step() {
-    for (const s of this.sources) if (s.obj.changed) { s.obj.changed = false; this.dirty = true; }
+    // Source currents may change every step (soft start); only a change of
+    // conductance needs a new factorisation.
+    for (const s of this.sources) {
+      if (s.obj.changed) { s.obj.changed = false; this.dirty = true; }
+      const nt = s.obj.norton();
+      if (nt.G !== s.nort.G) this.dirty = true;
+      s.nort = nt;
+    }
     if (this.dirty) this.factor();
     const rhs = this.rhs.fill(0), v = this.v, dt = this.dt;
     const inj = (a, b, I) => { if (a >= 0) rhs[a] += I; if (b >= 0) rhs[b] -= I; };
@@ -93,7 +100,7 @@ export class DCNetwork {
     for (const l of this.loads) inj(l.a, l.b, -l.obj.current);
     this.lu.solve(rhs, v);
     for (const w of this.wires) w.wire.record((this.vOf(w.a) - this.vOf(w.b)) * w.G);
-    for (const s of this.sources) s.obj.afterSolve?.(this.vOf(s.a) - this.vOf(s.b));
+    for (const s of this.sources) s.obj.afterSolve?.(this.vOf(s.a) - this.vOf(s.b), this.dt);
   }
 
   // Wire resistance drifts with temperature; refactor when it moved enough.

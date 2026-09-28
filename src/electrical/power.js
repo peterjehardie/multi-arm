@@ -14,6 +14,8 @@ export class PowerSupply extends Component {
     this.Ilimit = opts.Ilimit ?? 16;
     this.Cout = opts.Cout ?? 3300e-6;
     this.on = opts.on ?? true;
+    this.softStart = opts.softStart ?? 0.02;  // output ramps up over 20 ms after switch-on
+    this.tOn = 0;
     this.mode = 'cv';
     this.changed = false;
     this.I = 0; this.Vout = 0;
@@ -25,23 +27,25 @@ export class PowerSupply extends Component {
     net.addCapacitor(this.port('V+'), this.port('V-'), this.Cout);
     net.addSource(this.port('V+'), this.port('V-'), this);
   }
+  get Vnow() { return this.Vset * Math.min(1, this.tOn / this.softStart); }
   norton() {
     if (!this.on || this.mode === 'off') return { G: 0, I: 0 };
     if (this.mode === 'cc') return { G: 0, I: this.Ilimit };
-    return { G: 1 / this.Rout, I: this.Vset / this.Rout };
+    return { G: 1 / this.Rout, I: this.Vnow / this.Rout };
   }
-  afterSolve(v) {
+  afterSolve(v, dt) {
     this.Vout = v;
+    if (this.on) this.tOn += dt; else this.tOn = 0;
     let I = 0;
-    if (this.on && this.mode === 'cv') I = (this.Vset - v) / this.Rout;
+    if (this.on && this.mode === 'cv') I = (this.Vnow - v) / this.Rout;
     else if (this.on && this.mode === 'cc') I = this.Ilimit;
     this.I = I;
     let next = this.mode;
     if (!this.on) next = 'off';
     else if (this.mode === 'cv' && I < 0) next = 'off';
     else if (this.mode === 'cv' && I > this.Ilimit) next = 'cc';
-    else if (this.mode === 'off' && v < this.Vset) next = 'cv';
-    else if (this.mode === 'cc' && v > this.Vset - this.Ilimit * this.Rout) next = 'cv';
+    else if (this.mode === 'off' && v < this.Vnow) next = 'cv';
+    else if (this.mode === 'cc' && v > this.Vnow - this.Ilimit * this.Rout) next = 'cv';
     if (next !== this.mode) { this.mode = next; this.changed = true; }
   }
   setOn(on) { this.on = on; this.changed = true; if (on && this.mode === 'off') this.mode = 'cv'; }
