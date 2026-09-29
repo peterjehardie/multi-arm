@@ -34,6 +34,22 @@
     color-scheme: light;
   }
 }
+:root[data-theme="light"] {
+    --bg: #eef1f4;
+    --panel: #ffffff;
+    --panel-2: #f4f6f8;
+    --border: #d5dbe2;
+    --text: #1d232b;
+    --muted: #5f6b79;
+    --accent: #007c91;
+    --accent-2: #c46a00;
+    --ok: #17804f;
+    --bad: #c0392b;
+    --scene-bg: #dfe4ea;
+    --scope-bg: #fbfcfd;
+    --scope-grid: #e3e8ee;
+    color-scheme: light;
+  }
 
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
