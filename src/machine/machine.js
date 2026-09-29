@@ -201,6 +201,19 @@ export class Machine {
     return norm(sub(this.toolTip(), this.firmwareTip()));
   }
 
+  // Error where it matters for the part: the true tool tip seen from the
+  // plate's true frame, against where the firmware believes the tip is on the
+  // plate (its own kinematics and its own idea of the plate angle). Includes
+  // lost plate steps, which the arm-only tip error cannot see.
+  partError() {
+    const fw = this.firmware, tool = this.master.tool?.toolName ?? null;
+    if (!Number.isFinite(this.tipError())) return NaN;
+    const trueLocal = this.workpiece.toLocal(this.toolTip());
+    const fwLocal = fw.worldToWork(this.firmwareTip(), fw.jointAngles().table ?? 0);
+    void tool;
+    return norm(sub(trueLocal, fwLocal));
+  }
+
   status() {
     const K = (T) => T - 273.15;
     const fw = this.firmware;
@@ -214,6 +227,7 @@ export class Machine {
       table_deg: this.table.theta / DEG,
       tool: this.master.tool?.toolName ?? 'none',
       tipError_mm: this.tipError() * 1e3,
+      partError_mm: this.partError() * 1e3,
       spindle_rpm: this.spindle.omega * 60 / (2 * Math.PI),
       homed: fw.homed,
       queue: fw.queue.length + (this.host.lines.length - this.host.sent),
@@ -241,10 +255,12 @@ export function firmwareConfig(spec) {
     table: { center: spec.table.center },
     limits: spec.limits,
     maxJointSpeed: { ...spec.maxJointSpeed, e: 1e9 },
+    maxJointAccel: spec.maxJointAccel,
+    maxJointJump: spec.maxJointJump,
     homingOrder: spec.homing.order,
     restPose: spec.restPose,
-    accel: 0.6,
-    junctionDeviation: 0.02e-3,
+    accel: 1.5,                 // m/s^2 along the tool path (hobby-printer range)
+    junctionDeviation: 0.05e-3,
     rapid: 2400,
     changeFeed: 2400,
     rack: spec.rack,
@@ -279,6 +295,8 @@ export class Recorder {
     for (const n of ['j2', 'j3']) add(`${n} gearbox wind-up`, 'arcmin', () => m.gearboxes[n].deflection * 60 / DEG);
     add('table angle', 'deg', () => m.table.theta / DEG);
     add('tip error', 'mm', () => m.tipError() * 1e3);
+    add('part-frame error', 'mm', () => m.partError() * 1e3);
+    add('table angle error', 'deg', () => (m.firmware.homed ? (m.table.theta - m.firmware.jointAngles().table) / DEG : NaN));
     add('hot end (true)', 'C', () => m.hotTherm.T - 273.15);
     add('hot end (firmware)', 'C', () => m.firmware.heaters.hotend.temp);
     add('hot end duty', '%', () => 100 * m.firmware.heaters.hotend.duty);

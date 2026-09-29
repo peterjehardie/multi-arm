@@ -41,3 +41,26 @@
 **Command buffer.** The firmware accepted the whole G-code file at once, because it acknowledged every line immediately. It now holds 16 lines and withholds `ok` while full, which paces the host as real firmware does.
 
 **Viewer.** Physics runs in the page (requestAnimationFrame with a 12 ms budget per frame). Headless Chromium with software rendering manages only about 0.2× real time, which is a rendering limit, not a physics one. A Web Worker split remains an option.
+
+## Session 2 (2026-09-29)
+
+**Model → part pipeline.** A slicer and a CAM module were added in `src/cam/`, together with a revolved demo knob written out as an STL file.
+- The slicer offsets outlines by moving vertices along their averaged normals, instead of using a polygon-clipping library. It detects top and bottom skin from the part's top-surface height map.
+- Sliced outlines first carried tiny zig-zags where the cutting plane grazed triangle corners. Outlines are now cleaned before being offset.
+- The hybrid job slices each layer at its lower face, so up-facing surfaces print slightly oversize and the finishing cut has material to remove.
+- The spindle's cutter was changed from a flat end mill to a ball-nosed one, so that one tool can both rough and finish curved surfaces.
+
+**Roughing bug.** The slab loop stopped one slab early and left the lowest 1.6 mm of the block uncut outside the finishing area. It was fixed before any results were used.
+
+**Job length.** At 0.6 m/s² acceleration, a 27-layer knob made of half-millimetre segments ran at roughly 10 G-code lines per second, about 15 minutes of machine time. The planner's acceleration was raised to 1.5 m/s² (hobby-printer range, well within the arm's torque margin) and the knob was shrunk to 16 mm across.
+
+**Performance measurements (this container, Node 22):**
+- Material removal on the height map costs 2.8 µs per update, 1000 updates per second, which is 0.29 % of run time while cutting. The material representation is not the bottleneck; the 25 µs physics step is.
+- The same physics kernel (6 stepper channels plus the 37-node supply network, 10⁶ steps = 25 s simulated) took 3.4 s in JavaScript, 1.8 s in C at `-O2` and 1.5 s at `-O3 -ffast-math`. Native code is about 2× faster here.
+
+**Plate stall in off-centre polar printing (found by running the full machine).** In the first full hybrid run the printed knob came out smeared and displaced. A trace showed every step pulse reaching the plate's driver while the plate fell behind: 11° by the first layer change, 77° by 160 s. The stepper was stalling. The planner limited acceleration only along the tool path, and off the plate centre polar mode turns small tool-path changes into large plate-speed changes. Three causes were found and fixed:
+1. **No per-joint limits.** Moves are now also limited by each joint's speed, by its acceleration along the path, by the acceleration caused by path curvature (d²q/ds²·ṡ²), and by the largest sudden speed change a joint may take at a corner.
+2. **A move ending inside a tick left the rest of that tick unused, and the next tick caught up** with up to 2 ms of motion in 1 ms. Moves now hand over to the next one within the same tick. A second bug refused the handover time when it lay inside the current tick; that window was widened by one tick.
+3. **Corner speeds used the tool-path acceleration**, although the next move might be allowed less by its joints, so it could not stop in time before a retraction.
+
+Result from the planner-only check: plate peak speed 84°/s (limit 90), worst per-tick speed change 3 step-quanta, where it had been 54. `test/firmware.test.js` fails on the old planner (172°/s demanded) and passes now. The arm-only tip error had not shown any of this, so a part-frame error, which includes the plate angle, was added.

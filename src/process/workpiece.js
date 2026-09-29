@@ -98,9 +98,10 @@ export class Workpiece extends Component {
     return V;
   }
 
-  // Flat end mill of radius R with its tip at local point p (axis close to
-  // vertical). Removes everything above the tip within the radius.
-  cut(p, R) {
+  // End mill of radius R with its tip at local point p (axis close to
+  // vertical). A flat mill removes everything above the tip within the
+  // radius; a ball-nosed mill removes everything above its spherical end.
+  cut(p, R, shape = 'flat') {
     const A = this.cell * this.cell;
     let removed = 0;
     const byMat = new Float64Array(MATERIAL_BY_ID.length);
@@ -111,9 +112,11 @@ export class Workpiece extends Component {
     for (let j = j0; j <= j1; j++)
       for (let i = i0; i <= i1; i++) {
         const x = (i + 0.5) * this.cell - this.half, y = (j + 0.5) * this.cell - this.half;
-        if ((x - p[0]) ** 2 + (y - p[1]) ** 2 > R * R) continue;
+        const r2 = (x - p[0]) ** 2 + (y - p[1]) ** 2;
+        if (r2 > R * R) continue;
         const k = j * this.n + i;
-        const dh = this.h[k] - Math.max(0, p[2]);
+        const lift = shape === 'ball' ? R - Math.sqrt(R * R - r2) : 0;
+        const dh = this.h[k] - Math.max(0, p[2] + lift);
         if (dh > 0) {
           removed += dh * A;
           byMat[this.mat[k]] += dh * A;

@@ -51,11 +51,11 @@ export class DepositionContact extends Connection {
 // cutter edge = torque / radius, acting against the feed direction. A cutter
 // that is not turning cannot cut: it rams the part instead.
 export class CuttingContact extends Connection {
-  constructor(id, bitPort, surfacePort, { radius = 1.5875e-3, flutes = 2, ...opts } = {}) {
+  constructor(id, bitPort, surfacePort, { radius = 1.5875e-3, flutes = 2, shape = 'flat', ...opts } = {}) {
     super(id, bitPort, surfacePort, { ...opts, kind: 'cutting' });
     this.spindle = bitPort.owner;
     this.work = surfacePort.owner;
-    this.R = radius; this.flutes = flutes;
+    this.R = radius; this.flutes = flutes; this.shape = shape;
     this.prev = null;
     this.P = 0; this.Pf = 0; this.F = [0, 0, 0]; this.mrr = 0; this.chipLoad = 0;
     this.crash = 0;
@@ -70,7 +70,7 @@ export class CuttingContact extends Connection {
     const w = sp.omega;
     let F = [0, 0, 0];
     if (w > 30) {
-      const { removed, byMat } = wp.cut(local, this.R);
+      const { removed, byMat } = wp.cut(local, this.R, this.shape);
       let E = 0;
       for (let m = 0; m < byMat.length; m++) E += byMat[m] * MATERIAL_BY_ID[m].cutEnergy;
       this.mrr = removed / dt;

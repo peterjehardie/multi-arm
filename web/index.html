@@ -25,7 +25,16 @@
           <option value="max">max</option>
         </select>
       </label>
-      <button id="btnDemo">Load demo</button>
+      <label class="field">job
+        <select id="job">
+          <option value="demo.gcode">Ring + slot (quick demo)</option>
+          <option value="knob-hybrid.gcode">Knob: print, then finish the dome</option>
+          <option value="knob-machined.gcode">Knob: carve from a wax block</option>
+          <option value="mill-wax.gcode">Pocket in wax</option>
+        </select>
+      </label>
+      <button id="btnDemo" title="Reset the machine and load the selected job">Load job</button>
+      <label class="filebtn" title="Slice your own STL and load it as a print job">Open STL…<input type="file" id="stlFile" accept=".stl,model/stl" hidden></label>
     </div>
     <div class="group">
       <button id="btnReset">Reset</button>
@@ -42,13 +51,14 @@
     <div class="group">
       <label class="check"><input type="checkbox" id="byCurrent"> colour wires by current</label>
       <label class="check"><input type="checkbox" id="couplings" checked> couplings</label>
+      <label class="check"><input type="checkbox" id="toolpath" checked> toolpath</label>
     </div>
   </header>
 
   <main class="layout">
     <section class="left">
       <div id="viewport" class="viewport">
-        <div id="hint" class="hint">Press <b>Load demo</b>, then <b>Run</b></div>
+        <div id="hint" class="hint">Pick a job, press <b>Load job</b>, then <b>Run</b></div>
         <div id="problems" class="problems" hidden></div>
         <div id="legend" class="legend" hidden></div>
       </div>

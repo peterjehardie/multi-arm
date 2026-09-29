@@ -13,10 +13,13 @@ The goal is a sim that is close enough to the real machine that working on it te
 Requires Node 18 or later. There is nothing to install.
 
 ```sh
-npm test                     # 18 physics checks (about 20 s)
+npm test                     # 22 physics, slicer and CAM checks (about 20 s)
 npm run demo                 # headless: home, heat, print a ring, change tool, mill a slot
 node src/headless/run.js scenarios/demo.gcode --preheated   # skip the heat-up
 node src/headless/run.js scenarios/mill-wax.gcode --stock wax  # pocket a wax block
+node src/headless/run.js scenarios/knob-hybrid.gcode --preheated # print a knob, finish its dome
+node src/headless/run.js scenarios/knob-machined.gcode          # carve the knob from wax
+node tools/gen-parts.js      # regenerate the knob STL and its two jobs
 npm run serve                # then open http://localhost:8080/
 ```
 
@@ -65,9 +68,20 @@ Two kinds of time run together, as in real mixed-signal hardware:
 | Deposition and cutting | Both act on one height map in the plate's rotating frame. Plastic spreads under the nozzle with volume conserved. A spinning cutter removes material, and cutting power = specific energy × removal rate. The cutting force pushes back on the arm (through its gearboxes) and on the plate. | `process/workpiece.js`, `process/contacts.js` |
 | Tool changer | A servo turns a latch; a tool locks only if seated within capture range. Pogo pins open when the tool is released, and every circuit is then re-traced. | `mechanical/toolchanger.js` |
 | Controller | A 3.3 V microcontroller board with GPIO, 8 ns timer compare, hardware PWM, a 12-bit ADC with noise, pull-ups, and USB in 1 ms frames. | `mcu/board.js` |
-| Firmware | G-code over USB and a 1 kHz servo tick. It runs inverse kinematics and schedules step pulses on hardware timers. Also: homing on limit switches, heater PID with thermal-runaway protection, polar mode (the plate turns so the arm stays in its own plane), spindle soft-start and tool-change sequences. It knows only the nominal geometry. | `firmware/` |
+| Firmware | G-code over USB and a 1 kHz servo tick. It runs inverse kinematics and schedules step pulses on hardware timers. Its planner looks one move ahead and limits every joint's speed, acceleration and corner speed jump, so the steppers can follow. Also: homing on limit switches, heater PID with thermal-runaway protection, polar mode (the plate turns so the arm stays in its own plane), spindle soft-start and tool-change sequences. It knows only the nominal geometry. | `firmware/` |
 
 The machine itself (every part, pin assignment, wire, gauge, colour and route) is assembled in `src/machine/build.js`. Nominal dimensions and part choices are in `src/machine/spec.js`. The built machine differs from them by seeded manufacturing tolerances, so the firmware's picture of the arm is slightly wrong, as on a real build.
+
+### From a model to a finished part (`src/cam/`)
+A job starts from a 3D model (an STL triangle mesh) and becomes G-code for the firmware.
+- **Slicer** (`slicer.js`), for printing. It cuts the mesh into layers and traces two walls inside each outline. It hatches the inside: solid near the top and bottom of the part, 25 % sparse elsewhere. It orders the paths, adds retracted travel moves, and works out how much filament each move pushes. The option `sliceAt: 'bottom'` prints up-facing surfaces slightly oversize, which leaves material for a finishing cut.
+- **CAM** (`cam.js`), for the spindle. It uses a "drop cutter": for each point, the cutter is lowered onto a height map of the part's top surface until it touches, which gives the lowest height it can go without cutting into the part. Finishing is one closely spaced raster pass. Roughing takes the same passes in horizontal slabs, leaving a 0.3 mm allowance for finishing.
+- **Jobs** (`tools/gen-parts.js` writes them):
+  - `scenarios/knob.stl`: the demo part, a fluted, dome-topped knob.
+  - `scenarios/knob-hybrid.gcode`: prints the knob slightly oversize, then finishes the dome with the ball-nosed cutter.
+  - `scenarios/knob-machined.gcode`: carves the knob from a wax block.
+  - A job can declare its stock in a comment, for example `; @stock wax 24 24 8 -30 0` (material, size in mm, centre in mm).
+- In the viewer, **Open STL…** slices your own model in the page and loads it as a print job. The planned path is drawn on the plate: orange for extrusion, violet for cutting, blue for travel.
 
 ### G-code dialect (demo)
 - `G0` / `G1`: X Y Z in mm on the plate (origin at the plate centre, Z above the plate top). C is the plate angle in degrees, A the tool tilt in degrees, E extrusion in mm, F feed in mm/min.
@@ -84,6 +98,7 @@ src/electrical  wires and loops, supply network, logic nets, PSU, buck, drivers,
 src/mechanical  arm dynamics, gearboxes, turntable, tool changer
 src/thermal     thermal masses and contacts
 src/process     workpiece height map, extruder, deposition and cutting contacts
+src/cam         meshes and STL, slicer, CAM (drop cutter), demo models, job directives
 src/mcu         controller board, MCU peripherals, USB cable, host PC
 src/firmware    firmware and nominal kinematics
 src/machine     spec (the drawings), build (the wiring diagram), machine (step order, recorder)

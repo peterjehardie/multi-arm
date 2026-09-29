@@ -9,6 +9,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { Machine } from '../machine/machine.js';
 import { MATERIALS } from '../process/workpiece.js';
+import { applyDirectives } from '../cam/scenario.js';
 
 const args = process.argv.slice(2);
 const opt = (name, def) => {
@@ -27,20 +28,25 @@ const stock = opt('stock', null);
 if (stock && MATERIALS[stock]) m.workpiece.addStock(MATERIALS[stock], 0.03, 0.03, 0.008, -0.03, 0);
 
 m.host.onMessage = (msg) => console.log(`  [fw ${m.t.toFixed(3)}s] ${msg}`);
-m.host.load(readFileSync(file, 'utf8'));
+const text = readFileSync(file, 'utf8');
+const dir = applyDirectives(m, text); // e.g. "; @stock wax 30 30 8 -30 0"
+for (const s of dir.stock) console.log(`Stock: ${s.material} ${s.size.join(' x ')} mm at (${s.centre.join(', ')}) mm`);
+m.host.load(text);
 console.log(`Running ${file} (${m.host.lines.length} lines)`);
 
 const wall0 = Date.now();
-let lastLog = 0, tipErrMax = 0, tipErrSum = 0, tipErrN = 0, idle = 0;
+let lastLog = 0, tipErrMax = 0, tipErrSum = 0, tipErrN = 0, idle = 0, partErrMax = 0;
 while (m.t < maxT) {
   m.run(0.25);
   const e = m.tipError();
   if (Number.isFinite(e) && m.master.tool) { tipErrMax = Math.max(tipErrMax, e); tipErrSum += e; tipErrN++; }
+  const pe = m.partError();
+  if (Number.isFinite(pe) && m.master.tool) partErrMax = Math.max(partErrMax, pe);
   for (; lastLog < m.log.length; lastLog++) console.log(`  [plant ${m.log[lastLog][0].toFixed(3)}s] ${m.log[lastLog][1]}`);
   if (Math.abs(m.t / every - Math.round(m.t / every)) < 1e-6) {
     const s = m.status();
     console.log(`t=${s.t.toFixed(1)}s  q=[${s.q_deg.map((x) => x.toFixed(1)).join(', ')}] table=${s.table_deg.toFixed(1)}  tool=${s.tool}` +
-      `  hotend=${s.hotend_C.toFixed(1)}C  bus=${s.V_bus.toFixed(2)}V ${s.I_psu.toFixed(2)}A  tipErr=${Number.isFinite(s.tipError_mm) ? s.tipError_mm.toFixed(2) : '-'}mm` +
+      `  hotend=${s.hotend_C.toFixed(1)}C  bus=${s.V_bus.toFixed(2)}V ${s.I_psu.toFixed(2)}A  tipErr=${Number.isFinite(s.tipError_mm) ? s.tipError_mm.toFixed(2) : '-'}mm partErr=${Number.isFinite(s.partError_mm) ? s.partError_mm.toFixed(2) : '-'}mm` +
       `  spindle=${s.spindle_rpm.toFixed(0)}rpm  queue=${s.queue}  (x${(m.t / ((Date.now() - wall0) / 1000)).toFixed(2)} real time)`);
   }
   const fw = m.firmware;
@@ -61,6 +67,7 @@ const summary = {
   simTime_s: m.t, wall_s: wall, speed_x: m.t / wall,
   firmware: { homed: m.firmware.homed, moves: m.firmware.stats.moves, maxStepsPerTick: m.firmware.stats.maxStepsPerTick },
   tipError_mm: { max: tipErrMax * 1e3, mean: tipErrN ? (tipErrSum / tipErrN) * 1e3 : null },
+  partFrameErrorMax_mm: partErrMax * 1e3,
   extruded_mm3: m.extruder.totalOut * 1e9, deposited_mm3: wp.volumeAdded * 1e9, removed_mm3: wp.volumeRemoved * 1e9,
   partMaxHeight_mm: maxH * 1e3,
   driverViolations: Object.fromEntries(m.driverList.map((d) => [d.id, d.violations])),
@@ -68,5 +75,9 @@ const summary = {
   firmwareLog: m.firmware.log.map(([t, s]) => `${t.toFixed(3)} ${s}`),
   wires: m.wires.filter((w) => Math.abs(w.i) > 0.01).map((w) => ({ id: w.id, I: +w.i.toFixed(3), T: +(w.T - 273.15).toFixed(1) })),
 };
+const tag = file.replace(/^.*\//, '').replace(/\.gcode$/, '');
+writeFileSync(`out/heightmap-${tag}.pgm`, Buffer.concat([Buffer.from(`P5\n${wp.n} ${wp.n}\n255\n`), img]));
+writeFileSync(`out/heights-${tag}.bin`, Buffer.from(wp.h.buffer));
+writeFileSync(`out/summary-${tag}.json`, JSON.stringify(summary, null, 2));
 writeFileSync('out/summary.json', JSON.stringify(summary, null, 2));
 console.log('\nSummary:', JSON.stringify({ ...summary, events: summary.events.length, firmwareLog: summary.firmwareLog.length, wires: summary.wires.length }, null, 2));

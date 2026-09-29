@@ -38,3 +38,27 @@ The premise is that accurate enough physics makes the learning transfer. The dem
 - Target real hardware family for the controller (RP2040, STM32 or ESP32). This decides which emulator route is realistic.
 - Whether joints should get encoders (closed loop) or stay open-loop steppers as in most DIY builds.
 - Which materials to prioritise for machining (foam, wax, wood, printed PLA, aluminium).
+
+# Handover addendum: session 2 (2026-09-29)
+
+## State
+- `src/cam/` holds an STL reader and writer, a slicer, drop-cutter CAM (ball or flat cutter; roughing slabs and finishing raster) and job directives (`; @stock ...`).
+- `scenarios/knob.stl` is the demo part. It has two jobs: `knob-hybrid.gcode` (print, then finish the dome) and `knob-machined.gcode` (carve from wax).
+- The viewer has a job picker, an **Open STL…** button (slices in the page) and a toolpath overlay on the plate.
+
+## Where this was heading: material representation and speed
+- **Current:** a height map (one height per 0.4 mm cell). It is enough for printing and for 3-axis milling from above. It cannot hold undercuts, and it cannot take a cut from a tilted tool.
+- **Next step if 5-axis or undercuts are wanted:** tri-dexel, which is three height-map-like grids of rays along X, Y and Z. Each ray stores the intervals where material exists. Memory is about 3·N² intervals rather than N³ voxels, cuts and deposits are interval operations along the rays under the tool, and a mesh for display can be rebuilt locally around the tool. The measured 0.29 % share for material work leaves room for a representation 10–30× more expensive.
+- **Alternatives considered:**
+  - Dense voxels: 0.2 mm over 100 mm is 125 million cells, too much memory.
+  - Sparse voxels or a narrow-band distance field (an OpenVDB-style store): elegant, but more machinery.
+  - Mesh booleans: exact, but slow and fragile under thousands of small cuts per second.
+- **Speed route if needed:**
+  1. Move the physics into a Web Worker, so rendering never steals its time.
+  2. Port the 25 µs hot loop (drivers, coils, rotors, gearboxes, supply network) to Rust or C compiled to WebAssembly. The ~2× native gain measured here should largely carry over in the browser.
+  3. Leave the slow stages (thermal, process, firmware logic) in JavaScript.
+
+  Native-only (outside the browser) matters mainly for the MCU-emulator route, which runs natively anyway.
+
+## Planner state (session 2)
+The plate stall found in the first hybrid run is fixed in the firmware planner: per-joint limits, handover within a tick, and joint-aware corner speeds (see the log). The part-frame error (`Machine.partError`, scope channel "part-frame error") is the number to watch for print or cut accuracy, because it includes the plate angle. The material grid is now 0.25 mm.

@@ -5,6 +5,9 @@ import * as THREE from 'three';
 import { OrbitControls } from './vendor/OrbitControls.js';
 import { Machine } from '../src/machine/machine.js';
 import { MATERIALS } from '../src/process/workpiece.js';
+import { applyDirectives } from '../src/cam/scenario.js';
+import { parseSTL, centreOnPlate, meshBounds } from '../src/cam/mesh.js';
+import { sliceMesh, printGcode } from '../src/cam/slicer.js';
 import { MachineView } from './view3d.js';
 import { Scope } from './scope.js';
 import { Inspector, fmtNum } from './inspector.js';
@@ -122,6 +125,7 @@ function createMachine() {
   view = new MachineView(m);
   view.colorByCurrent = $('byCurrent').checked;
   view.showCouplings = $('couplings').checked;
+  view.toolpathVisible = $('toolpath').checked;
   scene.add(view.root);
   scope.attach(m, ['24 V bus at PSU', 'j2 coil A', 'hot end (true)', 'tip error']);
   inspector.attach(m);
@@ -166,20 +170,88 @@ $('stock').addEventListener('change', () => {
   if (m && m.t === 0) createMachine();
   else addLog('info', 'Stock change takes effect on Reset.');
 });
-$('btnDemo').addEventListener('click', async () => {
+// Load a job: reset the machine, put any stock the job asks for on the plate,
+// queue the G-code in the host PC and draw the planned path on the plate.
+function loadJob(text, name) {
+  setRunning(false);
+  createMachine();
   try {
-    const res = await fetch('../scenarios/demo.gcode');
+    const d = applyDirectives(m, text);
+    for (const st of d.stock) addLog('info', `Stock placed: ${st.material} ${st.size.join(' x ')} mm at (${st.centre.join(', ')}) mm.`);
+  } catch (err) { addLog('warn', err.message); }
+  view.updateWorkpiece?.();
+  m.host.load(text);
+  const tp = toolpathOf(text);
+  view.setToolpath(tp.segs, tp.kinds);
+  addLog('info', `Loaded ${name}: ${m.host.lines.length} lines queued in the host (${tp.kinds.length} path segments).`);
+  $('hint').innerHTML = `${escapeHtml(name)} loaded. Press <b>Run</b> (try speed <b>max</b>)`;
+  $('hint').hidden = false;
+}
+
+// Planned path in plate coordinates (the job's X/Y/Z), from the G-code text.
+function toolpathOf(text) {
+  const segs = [], kinds = [];
+  let x = 0, y = 0, z = 50, e = 0, absXYZ = true, relE = false, milling = false, have = false;
+  for (const raw of text.split('\n')) {
+    const line = raw.replace(/;.*$/, '').trim().toUpperCase();
+    if (!line) continue;
+    if (line.startsWith('G90')) absXYZ = true; else if (line.startsWith('G91')) absXYZ = false;
+    else if (line.startsWith('M83')) relE = true; else if (line.startsWith('M82')) relE = false;
+    else if (/^M6\b/.test(line)) milling = /T1/.test(line);
+    const mm = line.match(/^G([01])\b/);
+    if (!mm) continue;
+    const val = (k) => { const r = line.match(new RegExp(`${k}(-?[\\d.]+)`)); return r ? +r[1] : null; };
+    const X = val('X'), Y = val('Y'), Z = val('Z'), E = val('E');
+    const nx = X === null ? x : absXYZ ? X : x + X, ny = Y === null ? y : absXYZ ? Y : y + Y, nz = Z === null ? z : absXYZ ? Z : z + Z;
+    if (have && (nx !== x || ny !== y || nz !== z)) {
+      const extrudes = mm[1] === '1' && E !== null && (relE ? E > 0 : E > e);
+      const kind = extrudes ? 1 : milling && mm[1] === '1' ? 2 : 0;
+      segs.push(x / 1000, y / 1000, z / 1000, nx / 1000, ny / 1000, nz / 1000);
+      kinds.push(kind);
+    }
+    if (E !== null) e = relE ? e + E : E;
+    x = nx; y = ny; z = nz; have = true;
+  }
+  return { segs: Float32Array.from(segs), kinds: Uint8Array.from(kinds) };
+}
+
+$('btnDemo').addEventListener('click', async () => {
+  const file = $('job').value;
+  try {
+    const res = await fetch(`../scenarios/${file}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const text = await res.text();
-    const before = m.host.lines.length;
-    m.host.load(text);
-    addLog('info', `Loaded scenarios/demo.gcode: ${m.host.lines.length - before} lines queued in the host.`);
-    $('hint').innerHTML = running ? '' : 'Demo loaded. Press <b>Run</b> (try speed <b>max</b>)';
-    $('hint').hidden = running;
+    loadJob(await res.text(), file);
   } catch (err) {
-    addLog('warn', `Could not load demo: ${err.message}`);
+    addLog('warn', `Could not load ${file}: ${err.message}`);
   }
 });
+
+// Slice an STL in the page and load it as a print job (polar mode, placed
+// off the plate centre so the plate never has to flip half a turn).
+$('stlFile').addEventListener('change', async (e) => {
+  const f = e.target.files?.[0];
+  e.target.value = '';
+  if (!f) return;
+  try {
+    const tris = centreOnPlate(parseSTL(await f.arrayBuffer()));
+    const { lo, hi } = meshBounds(tris);
+    const size = [hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]];
+    if (Math.max(size[0], size[1]) > 40 || size[2] > 40) addLog('warn', `${f.name} is ${size.map((v) => v.toFixed(1)).join(' x ')} mm; parts over 40 mm may leave the arm's reach.`);
+    const t0 = performance.now();
+    const place = [Math.max(size[0], size[1]) / 2 + 10, 0];
+    const sliced = sliceMesh(tris, { place });
+    const job = printGcode(sliced, {
+      preamble: [`; ${f.name}, sliced in the browser`, 'G28', 'M104 S210', 'M6 T0', 'M109 S210', 'G90', 'M83',
+        `G0 X${place[0] + 5} Y0 Z5`, 'M620'],
+      postamble: ['G0 Z15', 'M621', 'M104 S0', 'G0 X0 Y0 Z40', 'M114'],
+    });
+    addLog('info', `Sliced ${f.name} in ${Math.round(performance.now() - t0)} ms: ${job.stats.layers} layers, ${job.stats.filament_mm.toFixed(0)} mm filament, about ${Math.round(job.stats.time_s / 60)} min of printing.`);
+    loadJob(job.lines.join('\n'), f.name);
+  } catch (err) {
+    addLog('warn', `Could not slice ${f.name}: ${err.message}`);
+  }
+});
+$('toolpath').addEventListener('change', (e) => { view.toolpathVisible = e.target.checked; });
 $('byCurrent').addEventListener('change', (e) => {
   view.colorByCurrent = e.target.checked;
   updateLegend();

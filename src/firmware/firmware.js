@@ -120,9 +120,21 @@ export class Firmware {
     let guard = 0;
     while (!this.current && this.queue.length && guard++ < 20) this.start(this.queue.shift(), t);
     while (this.okOwed > 0 && this.queue.length < BUFFER_LINES) { this.okOwed--; this.mcu.usbWrite('ok'); }
-    const cur = this.current;
+    let cur = this.current;
     if (cur) {
-      const done = cur.update(t);
+      let done = cur.update(t);
+      // A move that ends inside this tick hands straight over to the next
+      // one, which then sets this tick's target. Otherwise the tail of the
+      // tick is wasted and the next tick has to catch up: a speed kick that
+      // can make a stepper lose sync.
+      for (let n = 0; done === 'chain' && n < 8; n++) {
+        this.current = null;
+        const final = this.pendingFinal;
+        this.pendingFinal = null;
+        while (!this.current && this.queue.length && /^G[01](\s|$)/i.test(this.queue[0])) this.start(this.queue.shift(), t);
+        if (!this.current) { if (final) this.stepTo(final, t); done = true; break; }
+        done = this.current.update(t);
+      }
       if (done) this.current = null;
     }
   }
@@ -249,8 +261,35 @@ export class Firmware {
       const sh = Math.sqrt(0.5 * (1 - cosT));
       vj = Math.min(vj, Math.sqrt((a * this.cfg.junctionDeviation * sh) / (1 - sh)));
     }
+    // No joint may change speed by more than it can follow instantly (a
+    // stepper takes small velocity steps; large ones stall it).
+    const eps = Math.min(L1, L2, 2e-4);
+    const u1 = d1.map((x) => x / L1), u2 = d2.map((x) => x / L2);
+    const at = (base, u, k) => ({ x: base.x + u[0] * k, y: base.y + u[1] * k, z: base.z + u[2] * k });
+    const qm = this.jointsAtWork(at(p1, u1, -eps), p1.c), q0 = this.jointsAtWork(p1, p1.c), qp = this.jointsAtWork(at(p1, u2, eps), p1.c);
+    if (!qm || !q0 || !qp) return 0;
+    for (const n of Object.keys(q0)) {
+      const gA = (q0[n] - qm[n]) / eps, gB = (qp[n] - q0[n]) / eps; // joint rad per metre of path, before / after
+      const g2 = Math.abs(gB);
+      // The next move must be able to stop within its length using the
+      // acceleration its joints allow, and must not start above its joint speeds.
+      const aJ = this.cfg.maxJointAccel?.[n], wJ = this.cfg.maxJointSpeed?.[n];
+      if (aJ && g2 > 1e-9) vj = Math.min(vj, Math.sqrt((2 * 0.5 * aJ * L2) / g2));
+      if (wJ && g2 > 1e-9) vj = Math.min(vj, wJ / g2);
+      const jump = this.cfg.maxJointJump?.[n];
+      if (!jump) continue;
+      const dq = Math.abs(gB - gA); // joint speed change per unit path speed
+      if (dq > 1e-9) vj = Math.min(vj, jump / dq);
+    }
     void rapid;
     return vj;
+  }
+
+  // Joint angles for a work-coordinate point, with the plate angle polar
+  // mode would choose (or the given one when polar mode is off).
+  jointsAtWork(p, cRef) {
+    const c = this.polar && Math.hypot(p.x, p.y) > 1e-4 ? cRef + wrap(this.polarAngle(p.x, p.y) - cRef) : cRef;
+    return this.solve([p.x, p.y, p.z], c, p.a ?? 0, 0);
   }
 
   startLinear(args, rapid, t) {
@@ -259,12 +298,17 @@ export class Firmware {
     if (args.F !== undefined) this.feed = args.F;
     const F = rapid ? this.cfg.rapid : (this.feed ?? 1200);
     const polar = this.polar && args.C === undefined;
-    const cAt = (s) => {
-      if (!polar) return p0.c + s * (p1.c - p0.c);
-      const x = p0.x + s * (p1.x - p0.x), y = p0.y + s * (p1.y - p0.y);
+    const polarAt = (s) => {
+      let x = p0.x + s * (p1.x - p0.x), y = p0.y + s * (p1.y - p0.y);
+      // At the plate centre any angle works: use the one the move heads for.
+      if (Math.hypot(x, y) < 1e-4) { x = p1.x; y = p1.y; }
       if (Math.hypot(x, y) < 1e-4) return p0.c;
       return p0.c + wrap(this.polarAngle(x, y) - p0.c);
     };
+    // Polar mode: follow the polar angle, but start exactly at the plate's
+    // present angle (any mismatch is blended out along the move, never jumped).
+    const c0err = polar ? p0.c - polarAt(0) : 0;
+    const cAt = (s) => (polar ? polarAt(s) + (1 - s) * c0err : p0.c + s * (p1.c - p0.c));
     if (polar) p1.c = cAt(1);
     const eval_ = (s) => this.solve(
       [p0.x + s * (p1.x - p0.x), p0.y + s * (p1.y - p0.y), p0.z + s * (p1.z - p0.z)],
@@ -326,44 +370,61 @@ export class Firmware {
     const tCarry = this.tCarry;
     this.vCarry = 0; this.tCarry = null;
     if (len < 1e-9) { onDone?.(); return; }
-    // Limit speed so no joint exceeds its maximum rate.
-    const dqds = {};
-    for (let k = 1; k <= 8; k++) {
-      const q = eval_(k / 8), qp = eval_((k - 1) / 8);
-      for (const n of Object.keys(q)) dqds[n] = Math.max(dqds[n] ?? 0, Math.abs(q[n] - qp[n]) * 8);
+    // Each joint has its own speed and acceleration limits. Along the path
+    // a joint moves at q' = dq/ds * s' and accelerates at dq/ds * s'' +
+    // d2q/ds2 * s'^2 (the second term is how a straight tool path can still
+    // whip a joint round, e.g. the plate in polar mode near its centre).
+    const K = 24, qs = [];
+    for (let k = 0; k <= K; k++) qs.push(eval_(k / K));
+    const d1 = {}, d2 = {};
+    for (let k = 0; k <= K; k++) {
+      const q = qs[k], qa = qs[Math.max(0, k - 1)], qb = qs[Math.min(K, k + 1)];
+      const h = (Math.min(K, k + 1) - Math.max(0, k - 1)) / K;
+      for (const n of Object.keys(q)) {
+        d1[n] = Math.max(d1[n] ?? 0, Math.abs(qb[n] - qa[n]) / h);
+        if (k > 0 && k < K) d2[n] = Math.max(d2[n] ?? 0, Math.abs(qb[n] - 2 * q[n] + qa[n]) * K * K);
+      }
     }
     let v = vmax / len;
-    const a = amax / len; // everything below in units of s (path fraction)
-    for (const [n, d] of Object.entries(dqds)) {
-      const wmax = this.cfg.maxJointSpeed[n];
-      if (wmax && d > 1e-9) v = Math.min(v, wmax / d);
+    let a = amax / len; // everything below in units of s (path fraction)
+    for (const n of Object.keys(d1)) {
+      const wmax = this.cfg.maxJointSpeed[n], amaxJ = this.cfg.maxJointAccel?.[n];
+      if (wmax && d1[n] > 1e-9) v = Math.min(v, wmax / d1[n]);
+      if (amaxJ && d1[n] > 1e-9) a = Math.min(a, (0.5 * amaxJ) / d1[n]);
+      if (amaxJ && d2[n] > 1e-9) v = Math.min(v, Math.sqrt((0.5 * amaxJ) / d2[n]));
     }
     const v0 = Math.min(v0m / len, v);
-    let v1 = Math.min(vEnd / len, v, Math.sqrt(v0 * v0 + 2 * a));
+    const v1 = Math.min(vEnd / len, v, Math.sqrt(v0 * v0 + 2 * a));
     const vp = Math.max(v0, v1, Math.min(v, Math.sqrt(a + 0.5 * (v0 * v0 + v1 * v1))));
-    const d1 = (vp * vp - v0 * v0) / (2 * a), d3 = (vp * vp - v1 * v1) / (2 * a);
-    const d2 = Math.max(0, 1 - d1 - d3);
-    const t1 = (vp - v0) / a, t2 = d2 / vp, t3 = (vp - v1) / a;
+    const s1 = (vp * vp - v0 * v0) / (2 * a), s3 = (vp * vp - v1 * v1) / (2 * a);
+    const s2 = Math.max(0, 1 - s1 - s3);
+    const t1 = (vp - v0) / a, t2 = s2 / vp, t3 = (vp - v1) / a;
     const T = t1 + t2 + t3;
     const sAt = (tt) => {
       if (tt <= 0) return 0;
       if (tt >= T) return 1;
       if (tt < t1) return v0 * tt + 0.5 * a * tt * tt;
-      if (tt < t1 + t2) return d1 + vp * (tt - t1);
+      if (tt < t1 + t2) return s1 + vp * (tt - t1);
       const r = tt - t1 - t2;
-      return Math.min(1, d1 + d2 + vp * r - 0.5 * a * r * r);
+      return Math.min(1, s1 + s2 + vp * r - 0.5 * a * r * r);
     };
     // A blended move starts exactly where the previous one ended in time.
-    const t0 = v0 > 0 && tCarry != null && tCarry <= t + 1e-9 && tCarry > t - 3 * TICK ? tCarry : t;
+    // (The previous move may end inside the current tick, so up to one tick ahead.)
+    const t0 = v0 > 0 && tCarry != null && tCarry <= t + TICK + 1e-9 && tCarry > t - 3 * TICK ? tCarry : t;
     this.stats.moves++;
     this.current = {
       update: (tt) => {
         const s = sAt(tt + TICK - t0);
-        const q = eval_(s);
+        const chaining = tt + TICK - t0 >= T && v1 > 0;
+        const q = chaining ? null : eval_(s);
         if (q) this.stepTo(q, tt);
         if (tt + TICK - t0 >= T) {
-          if (v1 > 0) { this.vCarry = v1 * len; this.tCarry = t0 + T; }
           onDone?.();
+          if (v1 > 0) {
+            this.vCarry = v1 * len; this.tCarry = t0 + T;
+            this.pendingFinal = eval_(1);
+            return 'chain';
+          }
           return true;
         }
         return false;

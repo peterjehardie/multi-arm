@@ -531,6 +531,27 @@ export class MachineView {
     h.tube.geometry = geom;
   }
 
+  // Planned toolpath from the loaded job, drawn on the plate (it turns with
+  // the plate, like the part). segs: Float32Array of x,y,z pairs in metres,
+  // kinds: Uint8Array per segment (0 travel, 1 extrude, 2 cut).
+  setToolpath(segs, kinds) {
+    if (this.toolpath) { this.toolpath.parent?.remove(this.toolpath); this.toolpath.geometry.dispose(); this.toolpath.material.dispose(); this.toolpath = null; }
+    if (!segs || !segs.length) return;
+    const colors = [new THREE.Color('#5dade2'), new THREE.Color('#ff9f1c'), new THREE.Color('#c39bd3')];
+    const col = new Float32Array(segs.length);
+    for (let s = 0; s < kinds.length; s++)
+      for (let v = 0; v < 2; v++) { const c = colors[kinds[s]]; col.set([c.r, c.g, c.b], (2 * s + v) * 3); }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(segs, 3));
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    const mat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.55, depthWrite: false });
+    this.toolpath = fixed(new THREE.LineSegments(g, mat));
+    this.toolpath.renderOrder = 2;
+    this.toolpath.visible = this.showToolpath ?? true;
+    this.bodyGroups.get(this.m.workpiece.body).add(this.toolpath);
+  }
+  set toolpathVisible(v) { this.showToolpath = v; if (this.toolpath) this.toolpath.visible = v; }
+
   dispose() {
     this.clearHighlight();
     this.root.parent?.remove(this.root);

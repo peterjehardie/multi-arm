@@ -27,7 +27,7 @@ export const SPEC = {
     center: [0.27, 0, 0.06],  // plate top surface centre, world [m]
     radius: 0.09,
     workSize: 0.12,           // height-map square [m]
-    cell: 0.4e-3,
+    cell: 0.25e-3,
   },
 
   // --- tool rack (mating-face centre when parked, world) ----------------------
@@ -37,7 +37,8 @@ export const SPEC = {
   },
   tools: {
     hotend: { tipOffset: 0.058, mass: 0.1 },
-    spindle: { tipOffset: 0.092, cutterRadius: 1.5875e-3, flutes: 2 },
+    // 1/8" (3.175 mm) two-flute ball-nosed end mill: can rough and finish curved surfaces.
+    spindle: { tipOffset: 0.092, cutterRadius: 1.5875e-3, flutes: 2, cutter: 'ball' },
   },
 
   // --- drives -----------------------------------------------------------------
@@ -67,6 +68,10 @@ export const SPEC = {
     j3: [-160 * DEG, 20 * DEG], j4: [-150 * DEG, 60 * DEG],
   },
   maxJointSpeed: { j1: 60 * DEG, j2: 45 * DEG, j3: 60 * DEG, j4: 120 * DEG, table: 90 * DEG },
+  // Firmware motion limits per joint: acceleration [rad/s^2] and the largest
+  // instantaneous speed change at a corner [rad/s] a stepper follows reliably.
+  maxJointAccel: { j1: 500 * DEG, j2: 400 * DEG, j3: 500 * DEG, j4: 1000 * DEG, table: 1500 * DEG },
+  maxJointJump: { j1: 3 * DEG, j2: 2 * DEG, j3: 3 * DEG, j4: 5 * DEG, table: 4 * DEG },
 };
 
 // Motor datasheet values (typical catalogue numbers).

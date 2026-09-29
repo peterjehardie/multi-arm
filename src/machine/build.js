@@ -303,7 +303,7 @@ export function buildMachine(sim, spec = SPEC) {
   const spPlate = A.add(new ToolPlate('plate_spindle', { pins: 10, toolName: 'spindle', holder: holderT(spec.rack.spindle), mount: { body: spBody, p: [0, 0, 0] }, label: 'Spindle tool plate' }));
   spPlate.mass = 0.03;
   const spTip = spec.tools.spindle.tipOffset;
-  const spindle = A.add(new BrushedDCMotor('spindle', SPINDLE_MOTOR, { mount: { body: spBody, p: [0.045, 0, 0] }, bitAt: [spTip - 0.045, 0, 0], label: '775 spindle + 1/8" end mill' }));
+  const spindle = A.add(new BrushedDCMotor('spindle', SPINDLE_MOTOR, { mount: { body: spBody, p: [0.045, 0, 0] }, bitAt: [spTip - 0.045, 0, 0], label: '775 spindle + 1/8" ball-nose end mill' }));
   spindle.mass = 0.45; spindle.size = [0.09, 0.045, 0.045];
   pins('plate_spindle', [['P9', 'spindle.M+'], ['P10', 'spindle.M-']]);
 
@@ -320,7 +320,7 @@ export function buildMachine(sim, spec = SPEC) {
   // Process contacts.
   const deposition = A.connect(new DepositionContact('deposition', extruder.port('nozzle'), workpiece.port('surface')));
   const cutting = A.connect(new CuttingContact('cutting', spindle.port('bit'), workpiece.port('surface'), {
-    radius: spec.tools.spindle.cutterRadius, flutes: spec.tools.spindle.flutes,
+    radius: spec.tools.spindle.cutterRadius, flutes: spec.tools.spindle.flutes, shape: spec.tools.spindle.cutter,
   }));
 
   // Brackets / rack as massless visual parts.

@@ -197,3 +197,9 @@ button.primary.running { background: var(--accent-2); border-color: var(--accent
   .panel { border-left: 0; border-top: 1px solid var(--border); height: 70vh; }
   .toolbar { padding: 8px 16px; }
 }
+
+/* File picker styled as a button. */
+.filebtn { display: inline-flex; align-items: center; cursor: pointer; padding: 5px 10px; border: 1px solid var(--border);
+  border-radius: 5px; background: var(--panel-2); color: var(--text); font: inherit; }
+.filebtn:hover { border-color: var(--accent); }
+.filebtn:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
