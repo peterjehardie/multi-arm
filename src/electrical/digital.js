@@ -26,6 +26,7 @@ export class DigitalNet {
     // level its pull resistor gives it (a driver's EN pin is pulled high on
     // the carrier board, so the motor starts disabled).
     for (const r of receivers) r.seen = r.port.owner.idleLevel?.(r.port.name) ?? false;
+    sim.handlers.edge ??= (rx, pin, level, t) => rx.digitalIn(pin, level, t);
     this.edges = 0;
     // Short history of edges for the oscilloscope: [t, level] pairs.
     this.history = [];
@@ -67,7 +68,7 @@ export class DigitalNet {
       const tRC = tau > 0 ? tau * Math.log((vFinal - vStart) / (vFinal - vTh)) : 0;
       const tFlight = r.length / (0.66 * C_LIGHT);
       const tArrive = t + tRC + tFlight;
-      this.sim.at(tArrive, (ta) => rx.digitalIn(r.port.name, target, ta), 'edge');
+      this.sim.post(tArrive, 'edge', rx, r.port.name, target);
     }
   }
 

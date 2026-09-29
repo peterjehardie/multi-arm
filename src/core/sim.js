@@ -23,7 +23,20 @@ export class Simulator {
     this.queue = new EventQueue();
     this.stages = []; // { name, every, fn }
     this.eventCount = 0;
+    // Handlers for typed events, by kind: (target, a, b, t) => void.
+    this.handlers = {};
   }
+
+  // Typed event: data only. Used for everything on the machine side (a logic
+  // edge reaching a pin, a switch contact bouncing). Callbacks via at() are
+  // kept for the controller side (firmware timers, USB), which a native port
+  // runs as its own program.
+  post(t, kind, target, a, b) {
+    if (t < this.t) t = this.t;
+    const ev = this.queue.push(t, null, kind, target, a, b);
+    return { cancel: () => { ev.cancelled = true; }, t };
+  }
+  on(kind, fn) { this.handlers[kind] = fn; }
 
   // Schedule fn(t) to run at absolute time t. Returns a handle with cancel().
   at(t, fn, tag) {
@@ -53,7 +66,8 @@ export class Simulator {
       if (ev.cancelled) continue;
       const tSave = this.t;
       this.t = ev.t > tSave ? ev.t : tSave;
-      ev.fn(this.t);
+      if (ev.fn) ev.fn(this.t);
+      else this.handlers[ev.tag](ev.target, ev.a, ev.b, this.t);
       this.eventCount++;
       this.t = tSave;
     }

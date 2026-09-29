@@ -17,7 +17,8 @@
 // Assembly.validate() checks these rules and reports every violation (for
 // example a floating input pin, just like a real board).
 
-import { tf, tfMul, tfApply, rotAxis, I3 } from './linalg.js';
+import { tf, tfMul, tfApply, I3 } from './linalg.js';
+import { AMBIENT } from './units.js';
 
 export const DOMAINS = {
   elec: 'electrical',    // across: voltage [V], through: current [A]
@@ -25,6 +26,22 @@ export const DOMAINS = {
   therm: 'thermal',      // across: temperature [K], through: heat flow [W]
   mat: 'material',       // material transfer: filament, deposited or removed volume
 };
+
+// The values each kind of port carries. Every port of a domain has exactly
+// these fields (a native port would give each domain one struct).
+//   rot:   theta [rad], omega [rad/s], tau [N m] torque applied to the owner
+//          this step (accumulated by connections), loadTau [N m] a load the
+//          owner reports for a kinematic link (gear mesh output)
+//   therm: T [K], q [W] heat flowing into the owner this step
+//   mat:   omega [rad/s] of a cutter, tauLoad [N m] cutting torque on it
+//   elec:  none; voltages live in the supply network, currents in loops
+export const PORT_FIELDS = {
+  elec: [],
+  rot: ['theta', 'omega', 'tau', 'loadTau'],
+  therm: ['T', 'q'],
+  mat: ['omega', 'tauLoad'],
+};
+const PORT_INIT = { theta: 0, omega: 0, tau: 0, loadTau: 0, T: AMBIENT, q: 0, tauLoad: 0 };
 
 export class Body {
   // A rigid body with a world pose. Owners (arm model, turntable) update T.
@@ -48,6 +65,7 @@ export class Port {
     this.at = opts.at ?? [0, 0, 0]; // terminal location in the component frame
     this.label = opts.label ?? name;
     this.connections = [];
+    for (const f of PORT_FIELDS[domain]) this[f] = PORT_INIT[f];
   }
   get id() { return `${this.owner.id}.${this.name}`; }
   get connection() { return this.connections[0] ?? null; }
@@ -95,6 +113,13 @@ export class Component {
   }
   // Snapshot of internal state for inspectors / logging.
   inspect() { return {}; }
+  // Declarations (overridden per class as static fields):
+  //   static PARAMS: fixed parameters (what a data sheet or drawing gives)
+  //   static STATE:  values that change as the simulation runs. Paths may
+  //                  reach into owned objects ('loopA.i'); 'x[]' is an array;
+  //                  'mode:cv|cc|off' is a named state stored as its index.
+  static PARAMS = [];
+  static STATE = [];
 }
 
 export class Connection {
@@ -135,6 +160,8 @@ export class Connection {
     return L;
   }
   inspect() { return {}; }
+  static PARAMS = [];
+  static STATE = [];
 }
 
 export class Assembly {

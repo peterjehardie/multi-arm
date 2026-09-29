@@ -16,6 +16,8 @@ import { Component, Connection } from '../core/graph.js';
 // deflection d = theta_in / N - theta_out. Inside the backlash gap no torque
 // passes. Once the teeth touch, torque = k (d - gap/2) + c d'.
 export class Gearbox extends Connection {
+  static PARAMS = ['N', 'k', 'c', 'backlash', 'eff', 'tauC', 'bv'];
+  static STATE = ['offset', 'tau', 'tauF', 'deflection'];
   constructor(id, input, output, opts) {
     super(id, input, output, { ...opts, kind: 'gearbox' });
     this.N = opts.ratio;
@@ -53,6 +55,8 @@ export class Gearbox extends Connection {
 
 // A cam, flag or magnet on a shaft that a sensor reads without loading it.
 export class SensorCoupling extends Connection {
+  static PARAMS = ['offset', 'scale'];
+  static STATE = [];
   constructor(id, shaft, sensor, opts = {}) {
     super(id, shaft, sensor, { ...opts, kind: opts.kind ?? 'sensor-coupling' });
     this.offset = opts.offset ?? 0;
@@ -67,6 +71,8 @@ export class SensorCoupling extends Connection {
 // Rotating build plate on a bearing. Its inertia includes the plate, the
 // heater pad and whatever part is standing on it.
 export class Turntable extends Component {
+  static PARAMS = ['center', 'J0', 'tauC', 'bv'];
+  static STATE = ['theta', 'omega', 'Jpart', 'extTau', 'extTauHeld'];
   constructor(id, { body, center, J, coulomb = 0.02, viscous = 0.002, ...opts }) {
     super(id, { ...opts, kind: 'turntable' });
     this.body = body; this.center = center;

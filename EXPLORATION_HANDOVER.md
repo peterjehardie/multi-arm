@@ -62,3 +62,46 @@ The premise is that accurate enough physics makes the learning transfer. The dem
 
 ## Planner state (session 2)
 The plate stall found in the first hybrid run is fixed in the firmware planner: per-joint limits, handover within a tick, and joint-aware corner speeds (see the log). The part-frame error (`Machine.partError`, scope channel "part-frame error") is the number to watch for print or cut accuracy, because it includes the plate angle. The material grid is now 0.25 mm.
+
+# Handover addendum: session 4 (2026-09-29)
+
+## Porting: done so far
+- Typed ports: each domain has a fixed field list (`PORT_FIELDS`).
+- Every class declares `static PARAMS` and `static STATE`. Together these are the struct definitions a native port needs.
+- The step order is data: `SCHEDULE` in `machine/machine.js`.
+- Machine-side events are typed records (`sim.post`): logic edges and contact bounce. Callbacks remain only on the controller side (firmware timers, USB).
+- `core/state.js`: state table (871 scalars and 9 arrays), snapshot, restore and a 64-bit state hash.
+- `core/export.js` and `tools/export-model.js`: the whole built machine as JSON: components, connections, circuits, supply network, logic nets, schedule and state layout.
+- `test/golden/`: a reference trace (ring demo, quick start, 3 s, 10 signals, final hash) and the architecture tests.
+
+## Porting: still open
+- Behaviour still lives in JavaScript classes, with small closures for circuit elements (a motor coil's back-EMF). In C this becomes an element-type enum plus an index into the owner's struct.
+- The firmware uses closures and a queue of strings. The intended route is real C firmware on an MCU emulator behind the controller seam, with the JavaScript firmware as the reference behaviour.
+- The viewer reads objects directly. A native kernel (for example a Rust or C++ build compiled to WebAssembly, running in a Web Worker) would instead expose the state table by label, which `core/state.js` already defines.
+- The dynamics and linear-algebra helpers allocate small arrays. Fixed buffers are natural in a native port.
+- Bit-exact agreement with JavaScript is not realistic: math-library sine and exponential differ by the last bit, and stepper dynamics amplify tiny differences over long runs. Compare short windows within tolerance, and long runs by outcomes (volumes, errors, timings).
+- Candidate order for a port: core (events, schedule, state) → circuits, supply network, drivers, motors → mechanics → heat → process → controller seam.
+
+## Candidate tools (analysis in the session 4 conversation, not decided)
+- **Good fit** (low forces, reuses existing physics):
+  - touch probe for measuring, bed mapping and self-calibration, the biggest accuracy gain;
+  - paste, glue or silicone dispenser, which is the extruder model with a syringe;
+  - pen, drag knife and scoring;
+  - vacuum pick-and-place with a camera;
+  - diode laser engraving (needs an enclosure for eye safety);
+  - hot-air reflow;
+  - heat-set inserts pressed into printed parts.
+- **Possible with care:**
+  - soldering iron for through-hole joints (needs contact-force control, a solder feeder, flux and tip cleaning; the thermal side, a tip cooling on contact with a pad, fits the existing thermal network);
+  - PCB isolation milling and drilling (needs probing of the copper height).
+- **Poor fit:** heavy metal milling, welding.
+
+## Side approach (numbers from the model)
+- **Tip stiffness:** gearbox and motor holding stiffness in series, 2019 / 3167 / 1680 / 416 N·m/rad for joints 1–4. From above, a 10 N load deflects the tip 0.95 mm radially and 0.29 mm sideways or vertically. With a horizontal tool: 0.20 mm along the tool axis, 0.27 mm sideways and 0.63 mm vertically. Side approach is no softer than top approach, just different.
+- **Wrist range:** a horizontal tool needs the wrist at about +120°; the design allows +60°.
+- **Plate clearance:** the spindle body (45 mm across) needs its tip at least 22.5 mm above the plate, so side work needs a riser or fixture.
+- **What else it needs:**
+  1. wider wrist travel (or an added wrist axis);
+  2. collision checks (tool bodies against plate, part and rack);
+  3. a material model that can hold undercuts (tri-dexel);
+  4. tilted-tool CAM, with side drilling as the first and simplest case.

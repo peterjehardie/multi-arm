@@ -13,7 +13,7 @@ The goal is a sim that is close enough to the real machine that working on it te
 Requires Node 18 or later. There is nothing to install.
 
 ```sh
-npm test                     # 22 physics, slicer and CAM checks (about 20 s)
+npm test                     # 29 physics, slicer, CAM and architecture checks (about 30 s)
 npm run demo                 # headless: home, heat, print a ring, change tool, mill a slot
 node src/headless/run.js scenarios/demo.gcode --preheated   # skip the heat-up
 node src/headless/run.js scenarios/mill-wax.gcode --stock wax  # pocket a wax block
@@ -90,10 +90,31 @@ A job starts from a 3D model (an STL triangle mesh) and becomes G-code for the f
 - `M3 S<rpm>` / `M5` spindle on / off, `M6 T0|T1` tool change (hot end / spindle), `M114` report position.
 - `M620` / `M621` polar mode on / off.
 
+## Architecture: layers and seams
+
+The code is layered so each part could be replaced by an implementation in another language.
+
+| Layer | What it is | Where |
+|---|---|---|
+| Description | The drawings and wiring diagram: parts, where they sit, how they connect. Exportable as plain data (`node tools/export-model.js` writes `out/model.json`). | `machine/spec.js`, `machine/build.js`, `core/export.js` |
+| Machine kernel | Components and connections with declared parameters and state. Ports carry fixed fields per domain. The step order is data (`SCHEDULE`), and machine-side events are data. The full state can be snapshotted, restored and fingerprinted (`core/state.js`). | `core/`, `electrical/`, `mechanical/`, `thermal/`, `process/`, `machine/machine.js` |
+| Controller seam | The microcontroller's pins, timers, PWM, ADC and USB. The only way in or out for firmware. | `mcu/board.js` |
+| Firmware | Runs only against the controller seam. | `firmware/` |
+| Tools and viewer | Slicer and CAM (offline), headless runner, browser viewer. | `cam/`, `headless/`, `web/` |
+
+The checks in `test/architecture.test.js` guard this layering:
+- every part declares its parameters and state;
+- ports carry only their domain's fields;
+- runs are deterministic, and snapshot and restore are exact;
+- the export is complete;
+- a recorded reference trace (`test/golden/`) pins the physics numerically.
+
+A port to C, C++ or Rust can load `out/model.json` and compare its own state and traces against the same reference. Rerun `node tools/golden.js` only when a physics change is intended.
+
 ## Layout
 
 ```
-src/core        graph (anchor rules), simulator clock, linear algebra, units
+src/core        graph (anchor rules), simulator clock, linear algebra, units, state table, model export
 src/electrical  wires and loops, supply network, logic nets, PSU, buck, drivers, motors, devices
 src/mechanical  arm dynamics, gearboxes, turntable, tool changer
 src/thermal     thermal masses and contacts

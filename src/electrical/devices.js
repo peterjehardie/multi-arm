@@ -11,6 +11,8 @@ import { Contact } from './circuit.js';
 // terminals a and b; the power it dissipates heats its own core mass, which
 // touches the part it heats through the 'surface' thermal port.
 export class Heater extends Component {
+  static PARAMS = ['R0', 'alpha', 'C'];
+  static STATE = ['T', 'Eacc', 'Pavg'];
   constructor(id, { R0, alpha = 0.0002, C = 0.6, ...opts }) {
     super(id, { ...opts, kind: 'heater' });
     this.R0 = R0; this.alpha = alpha; this.C = C;
@@ -44,6 +46,8 @@ export class Heater extends Component {
 // NTC thermistor (100k, beta 3950). A glass bead with a small thermal mass,
 // glued into the part it measures. R = R25 exp(B (1/T - 1/298.15)).
 export class Thermistor extends Component {
+  static PARAMS = ['R25', 'B', 'C'];
+  static STATE = ['T'];
   constructor(id, { R25 = 100e3, B = 3950, C = 0.01, ...opts } = {}) {
     super(id, { ...opts, kind: 'thermistor', size: [0.004, 0.004, 0.004] });
     this.R25 = R25; this.B = B; this.C = C;
@@ -78,6 +82,8 @@ export class Thermistor extends Component {
 // module records each transition time and integrates the load loop piecewise
 // between them: the average current is exact, not rounded to the step grid.
 export class MosfetModule extends Component {
+  static PARAMS = ['Rds', 'flyback', 'Vth'];
+  static STATE = ['gate', 'iAvg', 'iAvgSq', 'load.current', 'loop.i'];
   constructor(id, opts = {}) {
     super(id, { ...opts, kind: 'mosfet', size: [0.034, 0.018, 0.012] });
     this.Rds = opts.Rds ?? 0.012;
@@ -154,6 +160,8 @@ export class MosfetModule extends Component {
 // Mechanical: rotor + collet + cutter inertia, bearing and brush friction,
 // and the cutting load that arrives through the 'bit' material port.
 export class BrushedDCMotor extends Component {
+  static PARAMS = ['R', 'L', 'Ke', 'J', 'tauF', 'b'];
+  static STATE = ['omega', 'theta', 'tauEM'];
   constructor(id, spec, opts = {}) {
     super(id, { ...opts, kind: 'dc-motor', size: [0.045, 0.045, 0.1] });
     this.R = spec.R; this.L = spec.L; this.Ke = spec.Ke;
@@ -192,12 +200,14 @@ export class BrushedDCMotor extends Component {
 // output horn toward that angle at a limited speed. The horn is a rotational
 // port, so whatever it drives (the tool-changer latch) sees the real angle.
 export class Servo extends Component {
+  static PARAMS = ['speed'];
+  static STATE = ['angle', 'target', 'tRise', 'load.current'];
   constructor(id, opts = {}) {
     super(id, { ...opts, kind: 'servo', size: [0.023, 0.012, 0.029] });
     this.angle = opts.angle0 ?? 0;          // rad
     this.target = this.angle;
     this.speed = opts.speed ?? (Math.PI / 3) / 0.1; // 60 deg per 0.1 s
-    this.tRise = null;
+    this.tRise = -1; // time of the last rising edge on SIG (-1: none yet)
     this.load = { current: 0.008 };
     this.addPort('V+', 'elec', 'supply');
     this.addPort('GND', 'elec', 'supply', { node: 'gnd' });
@@ -211,7 +221,7 @@ export class Servo extends Component {
   inputThresholds() { return { rise: 1.6, fall: 1.2 }; }
   digitalIn(pin, level, t) {
     if (level) this.tRise = t;
-    else if (this.tRise !== null) {
+    else if (this.tRise >= 0) {
       const w = t - this.tRise;
       if (w > 0.5e-3 && w < 2.6e-3) this.target = ((Math.min(2e-3, Math.max(1e-3, w)) - 1e-3) / 1e-3) * Math.PI;
     }
@@ -235,6 +245,8 @@ export class Servo extends Component {
 // the contact closes, bouncing a few times over about a millisecond as real
 // contacts do. Differential travel gives hysteresis.
 export class LimitSwitch extends Component {
+  static PARAMS = ['trip', 'dirn', 'hyst'];
+  static STATE = ['pressed', 'contact.closed'];
   constructor(id, { tripAngle, direction = +1, hysteresis = 0.004, rng, sim, ...opts }) {
     super(id, { ...opts, kind: 'limit-switch', size: [0.02, 0.01, 0.006] });
     this.trip = tripAngle; this.dirn = direction; this.hyst = hysteresis;
@@ -245,6 +257,7 @@ export class LimitSwitch extends Component {
     this.addPort('NO', 'elec', 'sensor');
     this.addThrough('COM', 'NO', this.contact);
     this.cam = this.addPort('cam', 'rot', 'sensor');
+    sim.handlers.contact ??= (sw, closed) => { if (sw.pressed) sw.contact.closed = closed; };
   }
   update() {
     const a = this.cam.theta;
@@ -260,9 +273,9 @@ export class LimitSwitch extends Component {
     this.contact.closed = true;
     for (let k = 0; k < n; k++) {
       t += this.rng.uniform(40e-6, 250e-6);
-      this.sim.at(t, () => { if (this.pressed) this.contact.closed = false; }, 'bounce');
+      this.sim.post(t, 'contact', this, false);
       t += this.rng.uniform(40e-6, 250e-6);
-      this.sim.at(t, () => { if (this.pressed) this.contact.closed = true; }, 'bounce');
+      this.sim.post(t, 'contact', this, true);
     }
   }
   inspect() { return { pressed: this.pressed, closed: this.contact.closed, trip_deg: (this.trip * 180) / Math.PI }; }

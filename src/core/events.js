@@ -9,8 +9,11 @@ export class EventQueue {
   get size() { return this.heap.length; }
   peekTime() { return this.heap.length ? this.heap[0].t : Infinity; }
 
-  push(t, fn, tag = '') {
-    const ev = { t, s: this.seq++, fn, tag, cancelled: false };
+  // An event is either a callback (fn) or a typed record: tag names its
+  // kind and target/a/b carry its data (no code), which is what a native
+  // port would store.
+  push(t, fn, tag = '', target = null, a = null, b = null) {
+    const ev = { t, s: this.seq++, fn, tag, target, a, b, cancelled: false };
     const h = this.heap;
     h.push(ev);
     let i = h.length - 1;

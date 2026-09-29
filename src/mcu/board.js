@@ -14,6 +14,8 @@ const ISR_LATENCY = 0.4e-6;   // interrupt entry + first instruction
 const V33 = 3.3;
 
 export class ControllerBoard extends Component {
+  static PARAMS = [];
+  static STATE = ['running', 'adcState.TH0.v', 'adcState.TH1.v', 'load.current'];
   constructor(id, { sim, rng, gpio = 23, ...opts }) {
     super(id, { ...opts, kind: 'controller', size: [0.085, 0.056, 0.015] });
     this.sim = sim;
@@ -204,6 +206,8 @@ class MCU {
 // in 1 ms frames, so a line of G-code arrives at the next frame boundary
 // after it is sent, plus its serialisation time at 12 Mbit/s.
 export class UsbCable extends Connection {
+  static PARAMS = ['length'];
+  static STATE = ['bytes'];
   constructor(id, a, b, opts = {}) {
     super(id, a, b, { ...opts, kind: 'usb-cable' });
     this.color = '#222222';
@@ -223,6 +227,8 @@ export class UsbCable extends Connection {
 }
 
 export class HostPC extends Component {
+  static PARAMS = ['window'];
+  static STATE = ['sent', 'inFlight'];
   constructor(id, { sim, ...opts }) {
     super(id, { ...opts, kind: 'host', size: [0.3, 0.2, 0.02] });
     this.sim = sim;

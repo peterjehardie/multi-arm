@@ -29,6 +29,8 @@ export const PLA_MELT = {
 };
 
 export class Extruder extends Component {
+  static PARAMS = ['r', 'A', 'nozzleR', 'k', 'grip', 'Cmelt', 'meltG', 'm'];
+  static STATE = ['xSlip', 'xMelt', 'F', 'Q', 'Tmelt', 'volumeOut', 'totalOut'];
   constructor(id, { melt = PLA_MELT, gearRadius = 3.65e-3, filamentD = 1.75e-3, nozzleD = 0.4e-3,
     freeLength = 0.03, gripForce = 60, meltG = 0.35, ...opts } = {}) {
     super(id, { ...opts, kind: 'extruder', size: [0.03, 0.04, 0.05] });
@@ -91,6 +93,8 @@ export class Extruder extends Component {
 // input / N. The load torque at the output comes back to the motor divided by
 // N, with mesh losses in whichever direction power flows.
 export class GearMesh extends Connection {
+  static PARAMS = ['N', 'eff'];
+  static STATE = [];
   constructor(id, input, output, { ratio, efficiency = 0.9, ...opts }) {
     super(id, input, output, { ...opts, kind: 'gear-mesh' });
     this.N = ratio; this.eff = efficiency;

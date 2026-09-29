@@ -90,3 +90,11 @@ Result from the planner-only check: plate peak speed 84°/s (limit 90), worst pe
 - Arm dynamics refresh every 500 µs instead of every 200 µs.
 
 All three jobs re-ran with the same results within grid differences. They now simulate at 2.3–2.4× real time headless.
+
+## Session 4 (2026-09-29)
+
+**Architecture for porting.**
+- Added typed port fields, declared parameters and state on every class, a data-driven step schedule, typed machine-side events, a state table with snapshot, restore and hash, a model export and a golden reference trace.
+- The new checks at once found three state values with no starting value (buck output voltage, a driver's logic-power flag, the servo's pulse timer) and a stray `inertia` field on the motor shaft port. All are fixed.
+- The state hash was identical before and after the refactor (60568afed06941a9 for the 3 s quick-start ring demo), so no physics changed.
+- The mounted part's inertia was briefly wired from the workpiece straight to the turntable. That was moved to the assembly level, because components must not reference each other.

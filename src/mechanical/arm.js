@@ -39,6 +39,8 @@ export function composite(parts) {
 }
 
 export class ArmModel extends Component {
+  static PARAMS = ['n', 'g', 'spec'];
+  static STATE = ['q[]', 'qd[]', 'qdd[]'];
   // spec.joints: [{ name, offset:[x,y,z] in parent frame, axis:[..], limits:[lo,hi], structure:[parts] }]
   constructor(id, spec, { assembly, baseBody, q0, ...opts }) {
     super(id, { ...opts, kind: 'arm', mount: { body: baseBody, p: [0, 0, 0] } });
@@ -188,6 +190,9 @@ export class ArmModel extends Component {
       this.jointPorts[i].omega = this.qd[i];
     }
   }
+
+  // Scheduled every kinematics stage: link poses, mass matrix, bias torques.
+  updateKinematics() { this.fk(); this.dynamics(); }
 
   // Kinetic + potential energy (for verification).
   energy() {

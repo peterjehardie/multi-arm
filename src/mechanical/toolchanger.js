@@ -17,6 +17,8 @@ import { Component, Connection } from '../core/graph.js';
 import { tf, tfMul, tfInv, norm, sub, m3mulv, dot } from '../core/linalg.js';
 
 export class ChangerMaster extends Component {
+  static PARAMS = ['flange'];
+  static STATE = ['locked'];
   constructor(id, { pins = 8, flange, ...opts }) {
     super(id, { ...opts, kind: 'changer-master', size: [0.012, 0.05, 0.05] });
     this.flange = flange; // [x,y,z] offset of the mating face on the link
@@ -31,6 +33,8 @@ export class ChangerMaster extends Component {
 }
 
 export class ToolPlate extends Component {
+  static PARAMS = ['toolName'];
+  static STATE = ['state:parked|attached|dropped'];
   constructor(id, { pins = 8, toolName, holder, ...opts }) {
     super(id, { ...opts, kind: 'tool-plate', size: [0.008, 0.05, 0.05] });
     this.toolName = toolName;
@@ -43,6 +47,8 @@ export class ToolPlate extends Component {
 }
 
 export class MatingContact extends Connection {
+  static PARAMS = ['Ron', 'ratedA'];
+  static STATE = ['mated', 'i', 'overload'];
   constructor(id, a, b, { Ron = 0.025, ratedA = 3, ...opts } = {}) {
     super(id, a, b, { ...opts, kind: 'pogo-contact' });
     this.Ron = Ron; this.ratedA = ratedA;
@@ -65,7 +71,7 @@ export class ToolChanger {
   }
   flangeT() { return tfMul(this.linkBody.T, tf(undefined, this.master.flange)); }
 
-  update(t) {
+  update(dt, t) {
     const ang = this.master.latch.theta ?? 0;
     const wantLock = this.master.locked ? ang > 0.52 : ang > 1.22;
     const F = this.flangeT();

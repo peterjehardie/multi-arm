@@ -130,57 +130,48 @@ export class Machine {
     this.extruder.Tmelt = K(205); this.extruder.melt.T = K(205);
   }
 
+  // Object groups the schedule refers to. A function is re-evaluated on each
+  // call (circuits are re-traced when a tool locks or releases).
+  scheduleGroups() {
+    const arm = this.arm, table = this.table;
+    const held = {
+      apply: () => { for (let i = 0; i < arm.n; i++) arm.jointPorts[i].tau += arm.extTauHeld[i]; table.extTau += table.extTauHeld; },
+      clear: () => { arm.extTauHeld.fill(0); table.extTauHeld = 0; },
+    };
+    return {
+      supplyNetwork: [this.net], buck: [this.buck], board: [this.board], servo: [this.servo],
+      drivers: this.driverList, mosfets: this.fetList, extruder: [this.extruder],
+      gearboxes: this.gearList, gearMeshes: this.meshes, heldForces: [held],
+      steppers: this.stepperList, spindle: [this.spindle], arm: [arm], turntable: [table],
+      toolChanger: [this.changer], sensorLinks: this.sensorLinks, limitSwitches: this.switchList,
+      deposition: [this.deposition], cutting: [this.cutting], recorder: [this.recorder],
+      thermalLinks: this.thermalLinks, thermalBodies: this.thermalBodies, wires: this.wires,
+      contacts: this.contacts,
+      // The part stands on the plate, so its inertia turns with it (the
+      // assembly knows what is mounted where, as it does for the arm links).
+      mountedInertia: [{ update: () => { table.Jpart = this.workpiece.massProperties().J; } }],
+      loops: () => [...this.driverList.flatMap((d) => [d.loopA, d.loopB]), ...this.fetList.map((f) => f.loop)].filter(Boolean),
+    };
+  }
+
+  // Build the simulator stages from SCHEDULE. Every call is method(dt, t).
   setupStages() {
-    const s = this.sim, net = this.net, arm = this.arm, table = this.table;
-    let netCount = 0;
-    s.stage('electrical+mechanical', 1, (dt, t) => {
-      if (netCount++ % this.netEvery === 0) net.step();
-      this.buck.update();
-      this.board.update(dt, t);
-      this.servo.update(dt);
-      for (const d of this.driverList) d.update(dt, t);
-      for (const f of this.fetList) f.update(dt, t);
-      this.extruder.update(dt);
-      for (const g of this.gearList) g.exchange();
-      for (const g of this.meshes) g.exchange();
-      for (let i = 0; i < arm.n; i++) arm.jointPorts[i].tau += arm.extTauHeld[i];
-      table.extTau += table.extTauHeld;
-      for (const mtr of this.stepperList) mtr.integrate(dt);
-      this.spindle.integrate(dt);
-      arm.integrate(dt);
-      table.integrate(dt);
-    });
-    s.stage('kinematics', 20, (dt, t) => {
-      arm.fk();
-      arm.dynamics();
-      table.updateBody();
-      this.changer.update(t);
-      for (const l of this.sensorLinks) l.exchange();
-      for (const sw of this.switchList) sw.update();
-    });
-    s.stage('process', 40, (dt, t) => {
-      arm.extTauHeld.fill(0);
-      table.extTauHeld = 0;
-      this.deposition.update(dt);
-      this.cutting.update(dt);
-      this.board.adcUpdate(dt);
-      this.recorder.sample(t);
-    });
-    s.stage('thermal', 400, (dt) => {
-      for (const l of this.thermalLinks) l.exchange();
-      for (const b of this.thermalBodies) b.thermalStep(dt);
-      for (const m of this.stepperList) m.thermal(dt);
-      for (const d of this.driverList) d.thermal(dt);
-      for (const w of this.wires) w.heat(dt);
-      for (const c of this.contacts) c.heat(dt);
-      for (const d of this.driverList) { d.loopA?.refresh(); d.loopB?.refresh(); }
-      for (const f of this.fetList) f.loop?.refresh();
-      net.checkDrift();
-    });
-    s.stage('slow', 40000, () => {
-      const { J } = this.workpiece.massProperties();
-      table.Jpart = J;
-    });
+    const groups = this.scheduleGroups();
+    for (const st of SCHEDULE) {
+      const ops = st.ops.map(([group, method, opt]) => {
+        const g = groups[group];
+        if (!g) throw new Error(`schedule: unknown group ${group}`);
+        return { g, method, every: opt?.every ?? 1, count: 0 };
+      });
+      this.sim.stage(st.stage, st.every, (dt, t) => {
+        for (const op of ops) {
+          if (op.every > 1 && op.count++ % op.every !== 0) continue;
+          const list = typeof op.g === 'function' ? op.g() : op.g;
+          const h = dt * op.every;
+          for (let i = 0; i < list.length; i++) list[i][op.method](h, t);
+        }
+      });
+    }
   }
 
   run(seconds) { this.sim.advance(seconds); }
@@ -241,6 +232,43 @@ export class Machine {
     };
   }
 }
+
+// The order of computation, as data. It is the most important thing a port
+// to another language must reproduce exactly. Each stage runs every `every`
+// base steps (25 us); its operations run in order, each calling
+// method(dt, t) on every member of a group. `every` on an operation runs it
+// on every n-th pass of its stage (with dt scaled accordingly).
+export const SCHEDULE = [
+  {
+    stage: 'electrical+mechanical', every: 1, ops: [
+      ['supplyNetwork', 'step', { every: 4 }], // node voltages move on ms time scales
+      ['buck', 'update'], ['board', 'update'], ['servo', 'update'],
+      ['drivers', 'update'], ['mosfets', 'update'], ['extruder', 'update'],
+      ['gearboxes', 'exchange'], ['gearMeshes', 'exchange'], ['heldForces', 'apply'],
+      ['steppers', 'integrate'], ['spindle', 'integrate'], ['arm', 'integrate'], ['turntable', 'integrate'],
+    ],
+  },
+  {
+    stage: 'kinematics', every: 20, ops: [
+      ['arm', 'updateKinematics'], ['turntable', 'updateBody'], ['toolChanger', 'update'],
+      ['sensorLinks', 'exchange'], ['limitSwitches', 'update'],
+    ],
+  },
+  {
+    stage: 'process', every: 40, ops: [
+      ['heldForces', 'clear'], ['deposition', 'update'], ['cutting', 'update'],
+      ['board', 'adcUpdate'], ['recorder', 'sample'],
+    ],
+  },
+  {
+    stage: 'thermal', every: 400, ops: [
+      ['thermalLinks', 'exchange'], ['thermalBodies', 'thermalStep'], ['steppers', 'thermal'],
+      ['drivers', 'thermal'], ['wires', 'heat'], ['contacts', 'heat'], ['loops', 'refresh'],
+      ['supplyNetwork', 'checkDrift'],
+    ],
+  },
+  { stage: 'slow', every: 40000, ops: [['mountedInertia', 'update']] },
+];
 
 // Firmware configuration derived from the nominal design (never the truth).
 export function firmwareConfig(spec) {
@@ -317,7 +345,7 @@ export class Recorder {
   add(name, unit, fn) {
     this.channels.set(name, { unit, fn, data: new Float32Array(this.n) });
   }
-  sample(t) {
+  sample(dt, t) {
     const i = this.idx;
     this.t[i] = t;
     for (const ch of this.channels.values()) ch.data[i] = ch.fn();

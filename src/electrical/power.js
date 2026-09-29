@@ -7,6 +7,8 @@ import { Component } from '../core/graph.js';
 // sink current (an output rectifier blocks it), and above its current limit
 // it folds into constant-current mode.
 export class PowerSupply extends Component {
+  static PARAMS = ['Vset', 'Rout', 'Ilimit', 'Cout', 'softStart'];
+  static STATE = ['on', 'mode:cv|cc|off', 'tOn', 'I', 'Vout'];
   constructor(id, opts = {}) {
     super(id, { ...opts, kind: 'psu', size: [0.215, 0.115, 0.05] });
     this.Vset = opts.V ?? 24;
@@ -56,6 +58,8 @@ export class PowerSupply extends Component {
 // Output: a regulated source. Input: draws whatever power the output
 // delivers, divided by efficiency.
 export class BuckConverter extends Component {
+  static PARAMS = ['Vset', 'Rout', 'eff', 'uvlo'];
+  static STATE = ['enabled', 'Iout', 'Vout', 'load.current'];
   constructor(id, opts = {}) {
     super(id, { ...opts, kind: 'buck', size: [0.045, 0.025, 0.012] });
     this.Vset = opts.V ?? 5.0;
@@ -64,7 +68,7 @@ export class BuckConverter extends Component {
     this.uvlo = opts.uvlo ?? 6.0;
     this.enabled = false;
     this.changed = false;
-    this.Iout = 0;
+    this.Iout = 0; this.Vout = 0;
     this.addPort('IN+', 'elec', 'supply', { at: [-0.02, 0.008, 0.006] });
     this.addPort('IN-', 'elec', 'supply', { node: 'gnd', at: [-0.02, -0.008, 0.006] });
     this.addPort('OUT+', 'elec', 'supply', { at: [0.02, 0.008, 0.006] });
@@ -101,6 +105,8 @@ export class BuckConverter extends Component {
 // All ports on the same bar share a node. Passive: circuit tracing may pass
 // through it.
 export class TerminalBlock extends Component {
+  static PARAMS = [];
+  static STATE = [];
   constructor(id, bars, opts = {}) {
     super(id, { ...opts, kind: 'terminal', size: [0.06, 0.03, 0.02] });
     this.passive = true;

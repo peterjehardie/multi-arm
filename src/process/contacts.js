@@ -15,6 +15,8 @@ function applyReaction(workpiece, x, F) {
 }
 
 export class DepositionContact extends Connection {
+  static PARAMS = [];
+  static STATE = ['contactForce', 'prev[]'];
   constructor(id, nozzlePort, surfacePort, opts = {}) {
     super(id, nozzlePort, surfacePort, { ...opts, kind: 'deposition' });
     this.extruder = nozzlePort.owner;
@@ -51,6 +53,8 @@ export class DepositionContact extends Connection {
 // cutter edge = torque / radius, acting against the feed direction. A cutter
 // that is not turning cannot cut: it rams the part instead.
 export class CuttingContact extends Connection {
+  static PARAMS = ['R', 'flutes', 'shape'];
+  static STATE = ['P', 'Pf', 'mrr', 'chipLoad', 'crash', 'F[]', 'prev[]'];
   constructor(id, bitPort, surfacePort, { radius = 1.5875e-3, flutes = 2, shape = 'flat', ...opts } = {}) {
     super(id, bitPort, surfacePort, { ...opts, kind: 'cutting' });
     this.spindle = bitPort.owner;

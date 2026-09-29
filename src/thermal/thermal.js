@@ -20,6 +20,8 @@ export function thermalPort(comp, name, opts) {
 }
 
 export class ThermalMass extends Component {
+  static PARAMS = ['C'];
+  static STATE = ['T', 'P'];
   constructor(id, { C, T0 = AMBIENT, faces = ['face'], ...opts }) {
     super(id, { ...opts, kind: opts.kind ?? 'thermal-mass' });
     this.C = C;
@@ -40,6 +42,8 @@ export class ThermalMass extends Component {
 
 // Room air: an infinitely large mass at fixed temperature.
 export class Ambient extends Component {
+  static PARAMS = ['T'];
+  static STATE = [];
   constructor(id, opts = {}) {
     super(id, { ...opts, kind: 'ambient' });
     this.T = opts.T ?? AMBIENT;
@@ -52,6 +56,8 @@ export class Ambient extends Component {
 }
 
 export class ThermalContact extends Connection {
+  static PARAMS = ['G'];
+  static STATE = ['q'];
   constructor(id, a, b, { G, ...opts }) {
     super(id, a, b, { ...opts, kind: opts.kind ?? 'thermal-contact' });
     this.G = G;

@@ -15,6 +15,8 @@ import { AMBIENT, COPPER } from '../core/units.js';
 // With phase currents I cos(phi), I sin(phi) the torque is Kt I sin(phi -
 // theta_e): the rotor is pulled toward phi, which is what microstepping sets.
 export class StepperMotor extends Component {
+  static PARAMS = ['Nr', 'Kt', 'R20', 'L', 'J', 'Td', 'b', 'tauC', 'Cw', 'Cc', 'Gwc', 'Gca'];
+  static STATE = ['theta', 'omega', 'Tw', 'Tc', 'tauEM'];
   constructor(id, spec, opts = {}) {
     super(id, { ...opts, kind: 'stepper', size: spec.size ?? [0.042, 0.042, 0.048] });
     this.spec = spec;
@@ -52,7 +54,6 @@ export class StepperMotor extends Component {
     this.addThrough('B1', 'B2', this.coilB);
     this.shaft = this.addPort('shaft', 'rot', 'shaft', { at: [0, 0, 0.03] });
     this.shaft.theta = this.theta; this.shaft.omega = 0; this.shaft.tau = 0;
-    this.shaft.inertia = this.J;
     this.trigAt = NaN;
     this.trig();
   }
@@ -118,6 +119,8 @@ export class StepperMotor extends Component {
 // can give (+-VM). At speed the motor's back-EMF eats that headroom, current
 // can no longer reach target, and torque falls: the real torque-speed curve.
 export class StepperDriver extends Component {
+  static PARAMS = ['microsteps', 'Irun', 'holdFrac', 'tPowerDown', 'Rds', 'Iq', 'Cbulk', 'Cth', 'Gth'];
+  static STATE = ['mscnt', 'dirLevel', 'enLevel', 'stepLevel', 'tDirChange', 'tStepRise', 'tLastStep', 'steps', 'Tj', 'overTemp', 'uA', 'uB', 'logicOn', 'load.current', 'loopA.i', 'loopB.i'];
   constructor(id, opts = {}) {
     super(id, { ...opts, kind: 'driver', size: [0.02, 0.015, 0.012] });
     this.microsteps = opts.microsteps ?? 16;
@@ -135,6 +138,7 @@ export class StepperDriver extends Component {
     this.steps = 0; this.violations = { setup: 0, pulse: 0 };
     this.Tj = AMBIENT; this.Cth = 2.5; this.Gth = 0.045; this.overTemp = false;
     this.uA = 0; this.uB = 0;
+    this.logicOn = false;
     this.load = { current: 0 };
     this.addPort('VM', 'elec', 'supply', { at: [-0.012, 0.006, 0.004] });
     this.addPort('GND', 'elec', 'supply', { node: 'gnd', at: [-0.012, 0.002, 0.004] });

@@ -20,6 +20,8 @@ export const MATERIALS = {
 export const MATERIAL_BY_ID = Object.values(MATERIALS);
 
 export class Workpiece extends Component {
+  static PARAMS = ['cell', 'n', 'half'];
+  static STATE = ['h[]', 'mat[]', 'volumeAdded', 'volumeRemoved'];
   constructor(id, { body, size = 0.12, cell = 0.4e-3, ...opts }) {
     super(id, { ...opts, kind: 'workpiece', mount: { body, p: [0, 0, 0] } });
     this.body = body;

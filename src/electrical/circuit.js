@@ -15,6 +15,8 @@ import { Connection } from '../core/graph.js';
 import { COPPER, AMBIENT, awgArea, awgDiameter } from '../core/units.js';
 
 export class Wire extends Connection {
+  static PARAMS = ['awg', 'color', 'slack', 'contactR', 'capPerM', 'indPerM', 'insulation', 'length'];
+  static STATE = ['T', 'i'];
   constructor(id, a, b, opts = {}) {
     super(id, a, b, { ...opts, kind: opts.kind ?? 'wire' });
     this.awg = opts.awg ?? 22;
