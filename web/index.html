@@ -34,10 +34,11 @@
         </select>
       </label>
       <button id="btnDemo" title="Reset the machine and load the selected job">Load job</button>
-      <label class="filebtn" title="Slice your own STL and load it as a print job">Open STL…<input type="file" id="stlFile" accept=".stl,model/stl" hidden></label>
+      <label class="filebtn" title="Slice your own STL and load it as a print job">Open STL&hellip;<input type="file" id="stlFile" accept=".stl,model/stl" hidden></label>
     </div>
     <div class="group">
       <button id="btnReset">Reset</button>
+      <label class="check" title="Start with the arm already referenced (no homing run) and the heaters at temperature"><input type="checkbox" id="quick" checked> quick start</label>
       <label class="check"><input type="checkbox" id="preheated" checked> preheated</label>
       <label class="field">stock
         <select id="stock">
@@ -52,6 +53,13 @@
       <label class="check"><input type="checkbox" id="byCurrent"> colour wires by current</label>
       <label class="check"><input type="checkbox" id="couplings" checked> couplings</label>
       <label class="check"><input type="checkbox" id="toolpath" checked> toolpath</label>
+      <label class="field">view
+        <select id="camMode">
+          <option value="overview">whole machine</option>
+          <option value="work">build plate</option>
+          <option value="follow">follow the tool</option>
+        </select>
+      </label>
     </div>
   </header>
 
@@ -60,6 +68,13 @@
       <div id="viewport" class="viewport">
         <div id="hint" class="hint">Pick a job, press <b>Load job</b>, then <b>Run</b></div>
         <div id="problems" class="problems" hidden></div>
+        <div id="jobCard" class="jobcard" hidden>
+          <div class="job-title"><span id="jobName"></span><span id="jobPct" class="job-pct"></span></div>
+          <div class="job-bar"><span id="jobBar"></span></div>
+          <div id="jobAct" class="job-act"></div>
+          <div id="jobSec" class="job-sec"></div>
+          <div id="jobEta" class="job-eta"></div>
+        </div>
         <div id="legend" class="legend" hidden></div>
       </div>
       <div class="scope">

@@ -88,6 +88,15 @@ export class Firmware {
     m.timerAt(tickAt, tick);
     const slow = (tt) => { if (!this.running) return; this.slowLoop(tt); m.timerAt(tt + 0.1, slow); };
     m.timerAt(t + 0.1, slow);
+    // Quick start: the joints are taken as already referenced at the rest
+    // pose (as an arm with absolute encoders would be), so no homing run.
+    if (this.cfg.startHomed) {
+      const rest = { j1: c.restPose[0], j2: c.restPose[1], j3: c.restPose[2], j4: c.restPose[3], table: 0 };
+      for (const [n, q] of Object.entries(rest)) { const ax = this.axes[n]; ax.zero = ax.pos - Math.round(q * ax.spr); }
+      this.homed = true;
+      this.syncPosFromJoints();
+    }
+    this.activity = this.homed ? 'Idle, ready' : 'Idle, not homed';
     this.msg('start');
   }
 
@@ -139,8 +148,31 @@ export class Firmware {
     }
   }
 
+  // What the machine is doing, in words, for displays.
+  describe(cmd, args) {
+    const names = { hotend: 'hot end', spindle: 'spindle' };
+    switch (cmd) {
+      case 'G0': return 'Moving (travel)';
+      case 'G1':
+        if (args.E !== undefined && args.X === undefined && args.Y === undefined && args.Z === undefined) return args.E < 0 ? 'Retracting filament' : 'Priming filament';
+        if (args.E !== undefined && args.E > 0) return 'Printing';
+        return this.tool === 'spindle' && this.spindle.target > 0 ? 'Cutting' : 'Moving';
+      case 'G4': return 'Waiting';
+      case 'M109': return `Heating hot end to ${args.S ?? 0} °C`;
+      case 'M190': return `Heating bed to ${args.S ?? 0} °C`;
+      case 'M3': return 'Spinning up the spindle';
+      case 'M5': return 'Stopping the spindle';
+      case 'M6': return `Changing tool to the ${names[this.cfg.toolOrder[args.T ?? 0]] ?? 'tool'}`;
+      case 'M620': return 'Turning the plate into position (polar mode)';
+      default: return null;
+    }
+  }
+
   start(line, t) {
     const { cmd, args } = Firmware.parse(line);
+    const act = cmd.startsWith('_') ? null : this.describe(cmd, args);
+    if (act && !(this.changingTool && cmd !== 'M6')) this.activity = act;
+    if (cmd === '_TIP' && args[0] !== '0') this.changingTool = false;
     const need = (ok) => { if (!ok) this.msg(`error: not homed, ignoring ${line}`); return ok; };
     if (cmd !== 'G0' && cmd !== 'G1') { this.vCarry = 0; this.tCarry = null; }
     switch (cmd) {
@@ -151,7 +183,9 @@ export class Firmware {
         this.current = { update: (tt) => tt >= tEnd };
         break;
       }
-      case 'G28': this.startHoming(t); break;
+      case 'G28':
+        if (this.cfg.startHomed && this.homed) { this.msg('homing skipped: quick start, joints already referenced'); break; }
+        this.startHoming(t); break;
       case 'G90': this.mode.absXYZ = true; break;
       case 'G91': this.mode.absXYZ = false; break;
       case 'G92': if (args.E !== undefined) this.pos.e = args.E / 1000; break;
@@ -473,6 +507,8 @@ export class Firmware {
       if (!name) return false;
       const ax = this.axes[name];
       phase = { ax, stage: 'seek', v: ax.home.dir * 12 * DEG, travel: 0, cmd: (ax.pos - ax.zero) / ax.spr };
+      const jointNames = { j1: 'base (j1)', j2: 'shoulder (j2)', j3: 'elbow (j3)', j4: 'wrist (j4)', table: 'plate' };
+      this.activity = `Homing: driving the ${jointNames[name] ?? name} into its limit switch`;
       if (!this.mcu.read(ax.home.pin)) { phase.stage = 'backoff'; phase.travel = 0; }
       ax.triggered = false; ax.seeking = phase.stage === 'seek';
       return true;
@@ -550,6 +586,7 @@ export class Firmware {
       '_SERVO lock', 'G4 P600', `_TOOL ${want}`, `_MOVEW ${h[0]} ${h[1]} ${h[2] + up} ${f / 4}`,
       `_TIP ${this.cfg.tipOffset[want]}`);
     this.queue.unshift(...seq);
+    this.changingTool = true; // cleared by the final _TIP of the sequence
   }
 
   // ------------------------------------------------------------ heaters

@@ -71,3 +71,22 @@ Result from the planner-only check: plate peak speed 84°/s (limit 90), worst pe
 - Hybrid: 582 s of machine time. 811 mm³ extruded = 811 mm³ deposited; the finishing cut removed 155 mm³. Mean arm tip error 0.41 mm; part-frame error peaked at 1.9 mm in one transient, not traced yet.
 - Machined: 334 s, 3051 mm³ of wax removed, part-frame error under 0.9 mm.
 - Both run at about 0.93–0.95× real time in Node, with two simulations sharing the CPU.
+
+## Session 3 (2026-09-29)
+
+**"Not much happens after Run."**
+- Every job opened with about 20 s of homing (one joint at a time, a few degrees each) and heating, and the page gave no feedback while it happened.
+- The physics also ran at only about 0.6× real time in a browser.
+- Added a quick start: the firmware takes the joints as already referenced at the rest pose, as an arm with absolute encoders would. `G28` is then skipped. Without switch referencing the tip error rises to about 1 mm, as expected.
+- The firmware now reports its activity in words.
+- The viewer has a job card (activity, layer or pass, progress, time estimate), view presets including one that follows the tool, and switches to max speed when a job loads.
+
+**Physics speed-up, about 2.7× during printing (Node: 1.31 s → 0.44 s of computing per simulated second):**
+- The supply network is solved every 100 µs instead of every 25 µs; its voltages move on millisecond time scales.
+- Loop resistance and inductance are cached, refreshed every 10 ms on the thermal stage and whenever circuits are re-traced.
+- Each driver caches its current-decay factor and its port references.
+- Each motor computes the sine and cosine of its rotor angle once per step. They are shared by back-EMF and torque, with the detent term from double-angle identities.
+- Idle MOSFET modules skip their update.
+- Arm dynamics refresh every 500 µs instead of every 200 µs.
+
+All three jobs re-ran with the same results within grid differences. They now simulate at 2.3–2.4× real time headless.

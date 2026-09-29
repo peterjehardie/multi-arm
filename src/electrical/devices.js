@@ -106,17 +106,22 @@ export class MosfetModule extends Component {
 
   update(dt, t0) {
     const loop = this.loop;
+    // Nothing switching, nothing flowing: skip the work.
+    if (!this.gate && !this.transitions.length && (!loop || loop.i === 0)) {
+      this.iAvg = 0; this.iAvgSq = 0; this.load.current = 0;
+      return;
+    }
     const vbus = this.net.across(this.port('VIN+'), this.port('VIN-'));
     let tPrev = t0, on = this.gate, q = 0, q2 = 0, qSupply = 0;
     const tr = this.transitions;
     const seg = (tEnd) => {
       const h = tEnd - tPrev;
       if (h <= 0 || !loop) { tPrev = tEnd; return; }
-      const R = loop.resistance() + (on ? this.Rds : 0), L = loop.inductance(), e = loop.emf();
+      const R = loop.Rc + (on ? this.Rds : 0), L = loop.Lc, e = loop.emf();
       const i0 = loop.i;
       if (on) loop.step(vbus, h, 0, R, L, e);
       else if (this.flyback && i0 > 1e-6) {
-        loop.step(-0.7, h, 0, loop.resistance(), L, e);
+        loop.step(-0.7, h, 0, loop.Rc, L, e);
         if (loop.i < 0) loop.setCurrent(0);
       } else loop.setCurrent(0);
       const im = 0.5 * (i0 + loop.i);

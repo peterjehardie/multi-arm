@@ -135,6 +135,16 @@ export class Loop {
     this.start = start;
     this.end = end;
     this.i = 0;
+    this.emfItems = items.filter(({ el }) => el.emf);
+    this.refresh();
+  }
+  // Resistance and inductance change only slowly (temperature) or when the
+  // circuit is re-traced, so drivers use these cached sums every step and the
+  // thermal stage refreshes them.
+  refresh() {
+    this.Rc = this.resistance();
+    this.Lc = this.inductance();
+    this.aKey = NaN;
   }
   resistance() {
     let R = 0;
@@ -149,7 +159,7 @@ export class Loop {
   // Sum of internal voltage drops (back-EMF) in the direction of traversal.
   emf() {
     let e = 0;
-    for (const { el, sign } of this.items) if (el.emf) e += sign * el.emf();
+    for (const { el, sign } of this.emfItems) e += sign * el.emf();
     return e;
   }
   setCurrent(i) {

@@ -15,6 +15,7 @@ import { docFor } from './docs.js';
 
 const $ = (id) => document.getElementById(id);
 const FRAME_BUDGET_MS = 12;   // wall time spent on physics per animation frame
+const MAX_BUDGET_MS = 24;     // at "max" speed physics may take more of each frame
 const CHUNK_S = 0.002;        // sim time per m.run() call
 
 // ------------------------------------------------------------------ three.js
@@ -116,8 +117,11 @@ function pollPlantLog() {
 // ------------------------------------------------------------------ machine lifecycle
 function createMachine() {
   if (view) { view.dispose(); view = null; }
-  const preheated = $('preheated').checked;
-  m = new Machine({ preheated });
+  const quick = $('quick').checked;
+  const preheated = $('preheated').checked || quick;
+  m = new Machine({ preheated, startHomed: quick });
+  job = null;
+  $('jobCard').hidden = true;
   const stock = $('stock').value;
   if (stock && MATERIALS[stock]) m.workpiece.addStock(MATERIALS[stock], 0.03, 0.03, 0.008, -0.03, 0);
   m.host.onMessage = (msg) => addLog('fw', msg);
@@ -166,6 +170,7 @@ function select(ref) {
 $('btnRun').addEventListener('click', () => setRunning(!running));
 $('speed').addEventListener('change', (e) => { speed = e.target.value === 'max' ? 'max' : Number(e.target.value); });
 $('btnReset').addEventListener('click', () => { setRunning(false); createMachine(); $('hint').hidden = false; });
+$('quick').addEventListener('change', () => { if (m && m.t === 0 && !job) createMachine(); else addLog('info', 'Quick start takes effect on Reset or when a job is loaded.'); });
 $('stock').addEventListener('change', () => {
   if (m && m.t === 0) createMachine();
   else addLog('info', 'Stock change takes effect on Reset.');
@@ -181,10 +186,15 @@ function loadJob(text, name) {
   } catch (err) { addLog('warn', err.message); }
   view.updateWorkpiece?.();
   m.host.load(text);
+  job = jobInfo(text, name);
+  $('jobCard').hidden = false;
+  $('speed').value = 'max'; speed = 'max';
+  setCamMode('work');
   const tp = toolpathOf(text);
   view.setToolpath(tp.segs, tp.kinds);
   addLog('info', `Loaded ${name}: ${m.host.lines.length} lines queued in the host (${tp.kinds.length} path segments).`);
-  $('hint').innerHTML = `${escapeHtml(name)} loaded. Press <b>Run</b> (try speed <b>max</b>)`;
+  $('hint').innerHTML = `${escapeHtml(name)} loaded. Press <b>Run</b>.` +
+    (m.firmware.cfg.startHomed ? '' : ' The machine first homes each joint (about 20 s).');
   $('hint').hidden = false;
 }
 
@@ -348,7 +358,85 @@ renderer.domElement.addEventListener('pointerup', (e) => {
 });
 
 // ------------------------------------------------------------------ status
+// ------------------------------------------------------------------ job progress
+let job = null;
+// Executable lines of a job (as the host sends them) with the section each
+// belongs to, taken from the job's comments ("; layer 5/22", "; finishing ...").
+function jobInfo(text, name) {
+  const sections = [];
+  let label = '';
+  for (const raw of text.split(/\r?\n/)) {
+    const c = raw.match(/^\s*;\s*(layer .*|roughing .*|finishing.*)$/i);
+    if (c) { label = c[1].replace(/, z=.*$/, ''); continue; }
+    if (raw.replace(/;.*$/, '').trim()) sections.push(label);
+  }
+  return { name, sections, total: sections.length, rate: [], done: false };
+}
+function updateJob() {
+  if (!job || !m) return;
+  const fw = m.firmware;
+  const started = Math.min(job.total, Math.max(0, fw.stats.lines - fw.queue.length));
+  const finished = m.host.done && !fw.current && !fw.queue.length;
+  const pct = finished ? 100 : (100 * started) / job.total;
+  $('jobName').textContent = job.name;
+  $('jobPct').textContent = `${pct.toFixed(pct < 10 ? 1 : 0)} %`;
+  $('jobBar').style.width = `${pct}%`;
+  $('jobAct').textContent = finished ? 'Job finished' : running ? fw.activity ?? '' : `Paused: ${fw.activity ?? ''}`;
+  const sec = job.sections[Math.max(0, started - 1)];
+  $('jobSec').textContent = sec ? `${sec.charAt(0).toUpperCase()}${sec.slice(1)}` : '';
+  // Remaining time from the recent rate of lines per simulated second.
+  job.rate.push([m.t, started]);
+  while (job.rate.length > 2 && m.t - job.rate[0][0] > 20) job.rate.shift();
+  const [t0, n0] = job.rate[0];
+  const lps = m.t - t0 > 2 ? (started - n0) / (m.t - t0) : 0;
+  if (finished) $('jobEta').textContent = `Done in ${fmtDur(m.t)} of machine time`;
+  else if (lps > 0.5) {
+    const simLeft = (job.total - started) / lps;
+    const wallLeft = Number.isFinite(rtf.value) && rtf.value > 0.01 ? simLeft / rtf.value : NaN;
+    $('jobEta').textContent = `Machine time ${fmtDur(m.t)}, about ${fmtDur(simLeft)} to go` + (Number.isFinite(wallLeft) ? ` (≈ ${fmtDur(wallLeft)} here at ${rtf.value.toFixed(2)}×)` : '');
+  } else $('jobEta').textContent = `Machine time ${fmtDur(m.t)}`;
+}
+function fmtDur(s) {
+  if (!Number.isFinite(s)) return '—';
+  const m_ = Math.floor(s / 60), ss = Math.round(s % 60);
+  return m_ ? `${m_} min ${String(ss).padStart(2, '0')} s` : `${ss} s`;
+}
+
+// ------------------------------------------------------------------ camera presets
+let camMode = 'overview';
+const camGoal = { pos: null, target: null };
+function setCamMode(mode) {
+  camMode = mode;
+  $('camMode').value = mode;
+  if (mode === 'overview') { camGoal.pos = new THREE.Vector3(0.64, -0.6, 0.46); camGoal.target = new THREE.Vector3(0.1, 0, 0.15); }
+  else if (mode === 'work') {
+    const c = m.spec.table.center;
+    camGoal.target = new THREE.Vector3(c[0] - 0.02, c[1], c[2] + 0.03);
+    camGoal.pos = new THREE.Vector3(c[0] + 0.2, c[1] - 0.26, c[2] + 0.2);
+  } else camGoal.pos = null;
+}
+function updateCamera() {
+  if (!m) return;
+  if (camMode === 'follow') {
+    const tip = m.toolTip();
+    const tgt = new THREE.Vector3(tip[0], tip[1], tip[2]);
+    const off = camera.position.clone().sub(controls.target);
+    if (off.length() > 0.35) off.setLength(0.35);
+    controls.target.lerp(tgt, 0.15);
+    camera.position.copy(controls.target).add(off);
+    return;
+  }
+  if (!camGoal.pos) return;
+  controls.target.lerp(camGoal.target, 0.12);
+  camera.position.lerp(camGoal.pos, 0.12);
+  if (camera.position.distanceTo(camGoal.pos) < 1e-3) camGoal.pos = null;
+}
+$('camMode').addEventListener('change', (e) => setCamMode(e.target.value));
+// Grabbing the view with the mouse ends an automatic camera move.
+renderer.domElement.addEventListener('pointerdown', () => { if (camMode !== 'follow') camGoal.pos = null; });
+
 function updateStatus() {
+  updateJob();
   const s = m.status();
   $('st-t').textContent = `${s.t.toFixed(3)} s`;
   $('st-rtf').textContent = Number.isFinite(rtf.value) ? `${rtf.value.toFixed(2)}×` : (running ? '…' : 'paused');
@@ -419,7 +507,7 @@ function frame(now) {
   lastRaf = performance.now();
   perf.frames++;
   if (running) {
-    advance(FRAME_BUDGET_MS);
+    advance(speed === 'max' ? MAX_BUDGET_MS : FRAME_BUDGET_MS);
     pollPlantLog();
     const wall = (performance.now() - rtf.t0) / 1000;
     if (wall >= 0.5) { rtf.value = rtf.sim / wall; rtf.sim = 0; rtf.t0 = performance.now(); }
@@ -428,6 +516,7 @@ function frame(now) {
   if (now - lastScope > 50) { lastScope = now; scope.draw(); }
   if (now - lastSlow > 200) { lastSlow = now; updateStatus(); inspector.refresh(); }
   if (view) view.update();
+  updateCamera();
   controls.update();
   renderer.render(scene, camera);
 }

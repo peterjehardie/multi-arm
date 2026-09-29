@@ -39,9 +39,7 @@ export class StepperMotor extends Component {
       label: `${id} coil ${phase}`, i: 0,
       resistance: () => self.R20 * (1 + COPPER.alpha * (self.Tw - 293.15)),
       inductance: () => self.L,
-      emf: () => phase === 'A'
-        ? -self.Kt * self.omega * Math.sin(self.Nr * self.theta)
-        : self.Kt * self.omega * Math.cos(self.Nr * self.theta),
+      emf: () => { self.trig(); return phase === 'A' ? -self.Kt * self.omega * self.sinE : self.Kt * self.omega * self.cosE; },
       record(i) { this.i = i; },
     });
     this.coilA = coil('A');
@@ -55,13 +53,22 @@ export class StepperMotor extends Component {
     this.shaft = this.addPort('shaft', 'rot', 'shaft', { at: [0, 0, 0.03] });
     this.shaft.theta = this.theta; this.shaft.omega = 0; this.shaft.tau = 0;
     this.shaft.inertia = this.J;
+    this.trigAt = NaN;
+    this.trig();
+  }
+  // sin and cos of the electrical angle, recomputed only when the rotor moved.
+  trig() {
+    if (this.trigAt === this.theta) return;
+    this.trigAt = this.theta;
+    this.sinE = Math.sin(this.Nr * this.theta); this.cosE = Math.cos(this.Nr * this.theta);
   }
 
   // Electromagnetic torque from the currents now flowing in the coils.
   computeTorque() {
-    const th = this.Nr * this.theta;
-    const s = Math.sin(th), c = Math.cos(th);
-    this.tauEM = this.Kt * (-this.coilA.i * s + this.coilB.i * c) - this.Td * Math.sin(4 * th);
+    this.trig();
+    const s = this.sinE, c = this.cosE;
+    const s2 = 2 * s * c, c2 = c * c - s * s; // sin(4x) = 2 sin(2x) cos(2x)
+    this.tauEM = this.Kt * (-this.coilA.i * s + this.coilB.i * c) - this.Td * 2 * s2 * c2;
     return this.tauEM;
   }
 
@@ -74,6 +81,7 @@ export class StepperMotor extends Component {
     tau -= this.tauC * Math.tanh(w / 0.01);
     this.omega = w + (dt * tau) / this.J;
     this.theta += dt * this.omega;
+    this.trig();
     this.shaft.theta = this.theta;
     this.shaft.omega = this.omega;
     this.shaft.tau = 0;
@@ -184,11 +192,12 @@ export class StepperDriver extends Component {
 
   // --- power interface: one chopper period ----------------------------------
   update(dt, t) {
-    const vio = this.net.across(this.port('VIO'), this.port('GND'));
+    const P = (this.P ??= { VIO: this.port('VIO'), GND: this.port('GND'), VM: this.port('VM') });
+    const vio = this.net.across(P.VIO, P.GND);
     const logicOn = vio > 1.5;
     if (logicOn && !this.logicOn) for (const [net, r] of this.inputNets ?? []) net.resync(r, t);
     this.logicOn = logicOn;
-    const vbus = this.net.across(this.port('VM'), this.port('GND'));
+    const vbus = this.net.across(P.VM, P.GND);
     const enabled = !this.enLevel && vbus > 4.5 && !this.overTemp;
     let I = this.Irun;
     if (t - this.tLastStep > this.tPowerDown) I *= this.holdFrac;
@@ -203,13 +212,19 @@ export class StepperDriver extends Component {
   drive(loop, iRef, vbus, enabled, dt) {
     if (!loop) return 0;
     const Rb = 2 * this.Rds;
-    const R = loop.resistance() + Rb, L = loop.inductance(), e = loop.emf();
+    const R = loop.Rc + Rb, L = loop.Lc;
+    if (!Number.isFinite(R)) { if (loop.i !== 0) loop.setCurrent(0); return 0; }
+    const e = loop.emf();
     let u;
-    if (!Number.isFinite(R)) { loop.setCurrent(0); return 0; }
+    if (loop.aKey !== dt) { loop.aKey = dt; loop.aDecay = Math.exp((-dt * R) / L); }
+    const a = loop.aDecay;
     if (enabled) {
-      const a = Math.exp((-dt * R) / L);
       const iss = (iRef - loop.i * a) / (1 - a);
       u = Math.max(-vbus, Math.min(vbus, e + R * iss));
+      // Exact step with the voltage held for the chopper period.
+      const iss2 = (u - e) / R;
+      loop.setCurrent(iss2 + (loop.i - iss2) * a);
+      return u;
     } else {
       // Bridge off: stored coil energy returns through the body diodes into
       // the supply until the current reaches zero.

@@ -8,7 +8,8 @@
 //   4. extruder filament force
 //   5. mechanical connections exchange torque (gearboxes, gear mesh)
 //   6. rotors, arm, turntable, spindle integrate
-// Every 200 us: kinematics and arm mass matrix, tool changer, limit switches.
+// Every 100 us: supply network. Every 500 us: kinematics and arm mass matrix,
+// tool changer, limit switches.
 // Every 1 ms:   process contacts (deposit / cut), ADC filters, recorder.
 // Every 10 ms:  thermal network, wire and motor heating.
 
@@ -28,7 +29,7 @@ import { SPEC } from './spec.js';
 const DEG = Math.PI / 180;
 
 export class Machine {
-  constructor({ spec = SPEC, dt = 25e-6, preheated = false } = {}) {
+  constructor({ spec = SPEC, dt = 25e-6, preheated = false, startHomed = false } = {}) {
     this.spec = spec;
     this.sim = new Simulator({ dt });
     const m = buildMachine(this.sim, spec);
@@ -42,7 +43,10 @@ export class Machine {
     for (const w of this.wires) w.measure();
 
     // Power network.
-    this.net = new DCNetwork(dt);
+    // The supply network's voltages move on millisecond time scales (bulk
+    // capacitors behind wire resistance), so it is solved every 4th step.
+    this.netEvery = 4;
+    this.net = new DCNetwork(dt * this.netEvery);
     for (const c of this.A.components.values()) c.dcStamp?.(this.net);
     for (const w of this.wires) if (w.a.role === 'supply' && w.b.role === 'supply') this.net.addWire(w);
     this.net.finalize();
@@ -92,7 +96,7 @@ export class Machine {
     if (preheated) this.preheat();
 
     // Firmware on the controller board.
-    this.firmware = new Firmware(this.board.mcu, firmwareConfig(spec));
+    this.firmware = new Firmware(this.board.mcu, { ...firmwareConfig(spec), startHomed });
     this.host.link(this.board);
 
     this.recorder = new Recorder(this);
@@ -128,8 +132,9 @@ export class Machine {
 
   setupStages() {
     const s = this.sim, net = this.net, arm = this.arm, table = this.table;
+    let netCount = 0;
     s.stage('electrical+mechanical', 1, (dt, t) => {
-      net.step();
+      if (netCount++ % this.netEvery === 0) net.step();
       this.buck.update();
       this.board.update(dt, t);
       this.servo.update(dt);
@@ -145,7 +150,7 @@ export class Machine {
       arm.integrate(dt);
       table.integrate(dt);
     });
-    s.stage('kinematics', 8, (dt, t) => {
+    s.stage('kinematics', 20, (dt, t) => {
       arm.fk();
       arm.dynamics();
       table.updateBody();
@@ -168,6 +173,8 @@ export class Machine {
       for (const d of this.driverList) d.thermal(dt);
       for (const w of this.wires) w.heat(dt);
       for (const c of this.contacts) c.heat(dt);
+      for (const d of this.driverList) { d.loopA?.refresh(); d.loopB?.refresh(); }
+      for (const f of this.fetList) f.loop?.refresh();
       net.checkDrift();
     });
     s.stage('slow', 40000, () => {

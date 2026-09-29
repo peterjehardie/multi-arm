@@ -203,3 +203,16 @@ button.primary.running { background: var(--accent-2); border-color: var(--accent
   border-radius: 5px; background: var(--panel-2); color: var(--text); font: inherit; }
 .filebtn:hover { border-color: var(--accent); }
 .filebtn:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* Job progress card, top left of the 3D view. */
+.jobcard { position: absolute; left: 12px; top: 12px; width: min(340px, calc(100% - 24px)); padding: 10px 12px;
+  background: color-mix(in srgb, var(--panel) 88%, transparent); border: 1px solid var(--border); border-radius: 8px;
+  display: grid; gap: 5px; font-size: 13px; pointer-events: none; backdrop-filter: blur(4px); }
+.job-title { display: flex; justify-content: space-between; gap: 8px; font-weight: 600; }
+.job-title span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.job-pct { font-variant-numeric: tabular-nums; color: var(--accent); }
+.job-bar { height: 6px; border-radius: 3px; background: var(--panel-2); overflow: hidden; }
+.job-bar span { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.3s linear; }
+.job-act { color: var(--text); }
+.job-sec, .job-eta { color: var(--muted); font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: reduce) { .job-bar span { transition: none; } }
