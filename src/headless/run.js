@@ -34,6 +34,11 @@ for (const s of dir.stock) console.log(`Stock: ${s.material} ${s.size.join(' x '
 m.host.load(text);
 console.log(`Running ${file} (${m.host.lines.length} lines)`);
 
+// --snapshot: save the part's height map each time a tool locks on, so the
+// state before each process step can be compared with the result.
+let lastTool = null;
+const snapshot = !!opt('snapshot', false);
+const tagOf = (f) => f.replace(/^.*\//, '').replace(/\.gcode$/, '');
 const wall0 = Date.now();
 let lastLog = 0, tipErrMax = 0, tipErrSum = 0, tipErrN = 0, idle = 0, partErrMax = 0;
 while (m.t < maxT) {
@@ -42,6 +47,12 @@ while (m.t < maxT) {
   if (Number.isFinite(e) && m.master.tool) { tipErrMax = Math.max(tipErrMax, e); tipErrSum += e; tipErrN++; }
   const pe = m.partError();
   if (Number.isFinite(pe) && m.master.tool) partErrMax = Math.max(partErrMax, pe);
+  const tool = m.master.tool?.toolName ?? null;
+  if (snapshot && tool !== lastTool && tool) {
+    mkdirSync('out', { recursive: true });
+    writeFileSync(`out/heights-${tagOf(file)}-before-${tool}.bin`, Buffer.from(m.workpiece.h.slice().buffer));
+  }
+  lastTool = tool;
   for (; lastLog < m.log.length; lastLog++) console.log(`  [plant ${m.log[lastLog][0].toFixed(3)}s] ${m.log[lastLog][1]}`);
   if (Math.abs(m.t / every - Math.round(m.t / every)) < 1e-6) {
     const s = m.status();
@@ -75,7 +86,7 @@ const summary = {
   firmwareLog: m.firmware.log.map(([t, s]) => `${t.toFixed(3)} ${s}`),
   wires: m.wires.filter((w) => Math.abs(w.i) > 0.01).map((w) => ({ id: w.id, I: +w.i.toFixed(3), T: +(w.T - 273.15).toFixed(1) })),
 };
-const tag = file.replace(/^.*\//, '').replace(/\.gcode$/, '');
+const tag = tagOf(file);
 writeFileSync(`out/heightmap-${tag}.pgm`, Buffer.concat([Buffer.from(`P5\n${wp.n} ${wp.n}\n255\n`), img]));
 writeFileSync(`out/heights-${tag}.bin`, Buffer.from(wp.h.buffer));
 writeFileSync(`out/summary-${tag}.json`, JSON.stringify(summary, null, 2));

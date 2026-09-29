@@ -64,3 +64,10 @@
 3. **Corner speeds used the tool-path acceleration**, although the next move might be allowed less by its joints, so it could not stop in time before a retraction.
 
 Result from the planner-only check: plate peak speed 84°/s (limit 90), worst per-tick speed change 3 step-quanta, where it had been 54. `test/firmware.test.js` fails on the old planner (172°/s demanded) and passes now. The arm-only tip error had not shown any of this, so a part-frame error, which includes the plate angle, was added.
+
+**Top skin fell into sparse infill.** In the first full-grid hybrid run the finished dome showed a crosshatch of the sparse infill underneath. The deposition model let a top-skin bead run down into infill gaps like a liquid, so the skin came out thin. Beads now bridge any drop deeper than about one bead thickness (0.35 mm). A height map cannot store the hollow under a bridge, so such columns count as filled. Also, plastic that oozed while the nozzle hovered was being dropped into a single cell, making a 9 mm spike; it now spreads over the patch under the nozzle.
+
+**Final knob runs (0.25 mm grid):**
+- Hybrid: 582 s of machine time. 811 mm³ extruded = 811 mm³ deposited; the finishing cut removed 155 mm³. Mean arm tip error 0.41 mm; part-frame error peaked at 1.9 mm in one transient, not traced yet.
+- Machined: 334 s, 3051 mm³ of wax removed, part-frame error under 0.9 mm.
+- Both run at about 0.93–0.95× real time in Node, with two simulations sharing the CPU.

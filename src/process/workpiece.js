@@ -66,10 +66,17 @@ export class Workpiece extends Component {
   // Molten plastic is squeezed between nozzle and surface: it cannot rise
   // above the nozzle tip, so it spreads sideways until it fits. That is what
   // sets the bead width.
-  deposit(a, b, V, nozzleR, material = MATERIALS.pla) {
+  //
+  // Bridging: a bead is a strand about one bead-thickness deep. Where the
+  // surface below drops away further (a gap in sparse infill), the strand
+  // spans it instead of running down into it. A height map cannot store the
+  // hollow under a bridge, so such a column simply counts as filled up to
+  // the strand (the part's apparent volume then exceeds the plastic used).
+  deposit(a, b, V, nozzleR, material = MATERIALS.pla, bridgeDepth = 0.35e-3) {
     if (V <= 0) return 0;
     const A = this.cell * this.cell;
     const zTip = Math.min(a[2], b[2]);
+    const floor = zTip - bridgeDepth;
     let left = V;
     const cx = 0.5 * (a[0] + b[0]), cy = 0.5 * (a[1] + b[1]);
     const segLen = Math.hypot(b[0] - a[0], b[1] - a[1]);
@@ -78,12 +85,13 @@ export class Workpiece extends Component {
       const cells = this.cellsNearSegment(a, b, r);
       if (!cells.length) break;
       let room = 0;
-      for (const k of cells) room += Math.max(0, zTip - this.h[k]) * A;
+      for (const k of cells) room += Math.max(0, zTip - Math.max(this.h[k], floor)) * A;
       if (room <= 0) continue;
       const frac = Math.min(1, left / room);
       for (const k of cells) {
-        const add = Math.max(0, zTip - this.h[k]) * frac;
-        if (add > 0) { this.h[k] += add; this.mat[k] = material.id; }
+        const base = Math.max(this.h[k], floor);
+        const add = Math.max(0, zTip - base) * frac;
+        if (add > 0) { this.h[k] = base + add; this.mat[k] = material.id; }
       }
       left -= Math.min(left, room);
       this.markAround(cx, cy, r + segLen);
@@ -91,8 +99,13 @@ export class Workpiece extends Component {
     // Nozzle far above the surface (or no room): the strand still lands
     // somewhere below. Drop the rest directly under the nozzle.
     if (left > 0) {
-      const k = this.cellIndex(b[0], b[1]);
-      if (k >= 0) { this.h[k] += left / A; this.mat[k] = material.id; this.markAround(b[0], b[1], this.cell); }
+      // The strand lands and slumps over the patch under the nozzle.
+      const cells = this.cellsNearSegment(b, b, 2 * nozzleR + this.cell);
+      if (cells.length) {
+        const dh = left / (A * cells.length);
+        for (const k of cells) { this.h[k] += dh; this.mat[k] = material.id; }
+        this.markAround(b[0], b[1], 2 * nozzleR + this.cell);
+      }
     }
     this.volumeAdded += V;
     return V;
