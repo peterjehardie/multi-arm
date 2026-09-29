@@ -194,6 +194,18 @@ export class ArmModel extends Component {
   // Scheduled every kinematics stage: link poses, mass matrix, bias torques.
   updateKinematics() { this.fk(); this.dynamics(); }
 
+  // Demo mode: no dynamics. Each joint sits where its gearbox output puts it
+  // (rigid, no gravity sag, no inertia); only the link poses are updated.
+  followPorts() {
+    for (let i = 0; i < this.n; i++) {
+      const p = this.jointPorts[i];
+      this.q[i] = p.theta; this.qd[i] = p.omega; this.qdd[i] = 0;
+      p.tau = 0;
+    }
+    this.extTau.fill(0);
+  }
+  updatePose() { this.fk(); }
+
   // Kinetic + potential energy (for verification).
   energy() {
     let KE = 0;

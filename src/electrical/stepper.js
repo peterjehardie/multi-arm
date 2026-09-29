@@ -88,6 +88,21 @@ export class StepperMotor extends Component {
     this.shaft.tau = 0;
   }
 
+  // Demo mode (1 ms steps): the rotor sits exactly where the coil currents
+  // point it (zero load angle). Stall, resonance and step loss are gone, but
+  // the rotor still only moves because current flows in its coils.
+  followCurrent(dt) {
+    const iA = this.coilA.i, iB = this.coilB.i;
+    if (iA * iA + iB * iB > 1e-6) {
+      let d = Math.atan2(iB, iA) - this.Nr * this.theta;
+      d -= 2 * Math.PI * Math.round(d / (2 * Math.PI));
+      this.omega = d / this.Nr / dt;
+      this.theta += d / this.Nr;
+    } else this.omega = 0;
+    this.tauEM = 0;
+    this.shaft.theta = this.theta; this.shaft.omega = this.omega; this.shaft.tau = 0;
+  }
+
   thermal(dt) {
     const P = this.coilA.i ** 2 * this.coilA.resistance() + this.coilB.i ** 2 * this.coilB.resistance();
     const qwc = this.Gwc * (this.Tw - this.Tc);
@@ -211,6 +226,30 @@ export class StepperDriver extends Component {
     this.uB = this.drive(this.loopB, iRefB, vbus, enabled, dt);
     const iA = this.loopA ? this.loopA.i : 0, iB = this.loopB ? this.loopB.i : 0;
     this.load.current = vbus > 1 ? (this.uA * iA + this.uB * iB) / vbus + this.Iq : 0;
+  }
+
+  // Demo mode: an ideal chopper. Each coil carries exactly its sine-table
+  // current (no rise time, no back-EMF limit); the bus supplies the copper
+  // losses of the coils and wires.
+  updateIdeal(dt, t) {
+    const P = (this.P ??= { VIO: this.port('VIO'), GND: this.port('GND'), VM: this.port('VM') });
+    const logicOn = this.net.across(P.VIO, P.GND) > 1.5;
+    if (logicOn && !this.logicOn) for (const [net, r] of this.inputNets ?? []) net.resync(r, t);
+    this.logicOn = logicOn;
+    const vbus = this.net.across(P.VM, P.GND);
+    const enabled = !this.enLevel && vbus > 4.5 && !this.overTemp;
+    let I = enabled ? this.Irun : 0;
+    if (t - this.tLastStep > this.tPowerDown) I *= this.holdFrac;
+    const ph = (2 * Math.PI * this.mscnt) / 1024;
+    let Ploss = 0;
+    for (const [loop, i] of [[this.loopA, I * Math.cos(ph)], [this.loopB, I * Math.sin(ph)]]) {
+      if (!loop) continue;
+      const ok = Number.isFinite(loop.Rc);
+      loop.setCurrent(ok ? i : 0);
+      if (ok) Ploss += i * i * (loop.Rc + 2 * this.Rds);
+    }
+    this.uA = 0; this.uB = 0;
+    this.load.current = vbus > 1 ? Ploss / vbus + this.Iq : 0;
   }
 
   drive(loop, iRef, vbus, enabled, dt) {

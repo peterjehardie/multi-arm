@@ -1,7 +1,10 @@
 #!/usr/bin/env node
 // Headless runner: stream a G-code file into the simulated machine and report.
 //
-//   node src/headless/run.js scenarios/demo.gcode [--preheated] [--max 600] [--every 5] [--stock wax]
+//   node src/headless/run.js scenarios/demo.gcode [--preheated] [--quick] [--demo] [--max 600] [--every 5] [--stock wax]
+//
+//   --quick  joints start referenced at the rest pose (G28 skipped)
+//   --demo   demo mode: ideal drives, rigid gearboxes, 1 ms steps (about 20x faster)
 //
 // Writes out/heightmap.pgm (the part as a grey-scale height image) and
 // out/summary.json.
@@ -22,7 +25,7 @@ const file = args.find((a) => !a.startsWith('--') && a.endsWith('.gcode')) ?? 's
 const maxT = Number(opt('max', 900));
 const every = Number(opt('every', 5));
 
-const m = new Machine({ preheated: !!opt('preheated', false) });
+const m = new Machine({ preheated: !!opt('preheated', false), startHomed: !!opt('quick', false), mode: opt('demo', false) ? 'demo' : 'full' });
 if (m.problems.length) console.log('Assembly problems:\n  ' + m.problems.join('\n  '));
 const stock = opt('stock', null);
 if (stock && MATERIALS[stock]) m.workpiece.addStock(MATERIALS[stock], 0.03, 0.03, 0.008, -0.03, 0);

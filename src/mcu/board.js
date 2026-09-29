@@ -239,6 +239,7 @@ export class HostPC extends Component {
     this.window = 4;       // lines allowed in flight before waiting for 'ok'
     this.log = [];
     this.onMessage = null;
+    this.listeners = [];   // other programs on the PC reading the serial port
   }
   link(board) {
     this.cable = this.port('USB').connection;
@@ -266,7 +267,11 @@ export class HostPC extends Component {
   receive(msg) {
     if (msg === 'start') { this.connected = true; this.inFlight = 0; this.pump(); }
     if (msg.startsWith('ok')) { this.inFlight = Math.max(0, this.inFlight - 1); this.pump(); }
-    else { this.log.push([this.sim.t, msg]); if (this.log.length > 500) this.log.shift(); this.onMessage?.(msg); }
+    else {
+      this.log.push([this.sim.t, msg]); if (this.log.length > 500) this.log.shift();
+      this.onMessage?.(msg);
+      for (const f of this.listeners) f(msg, this.sim.t);
+    }
   }
   get done() { return this.sent >= this.lines.length && this.inFlight === 0; }
   inspect() { return { sent: this.sent, queued: this.lines.length - this.sent, inFlight: this.inFlight }; }

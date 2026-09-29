@@ -6,7 +6,7 @@ import { exportModel } from '../src/core/export.js';
 import { stateTable, hashState } from '../src/core/state.js';
 
 const m = new Machine();
-const model = exportModel(m, { schedule: SCHEDULE });
+const model = exportModel(m, { schedule: m.schedule });
 const table = stateTable(m);
 model.stateLayout = {
   scalars: table.scalars.map((e) => ({ label: e.label, kind: e.kind })),

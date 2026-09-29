@@ -45,6 +45,12 @@ export class Gearbox extends Connection {
     this.b.tau += ts - tf;
     this.a.tau -= ts / this.N;
   }
+  // Demo mode: a rigid, loss-free reduction. The output follows the input.
+  follow() {
+    this.b.theta = this.a.theta / this.N - this.offset;
+    this.b.omega = this.a.omega / this.N;
+    this.tau = 0; this.tauF = 0; this.deflection = 0;
+  }
   inspect() {
     return {
       ratio: this.N, torque_out_Nm: this.tau, friction_Nm: this.tauF,
@@ -95,6 +101,11 @@ export class Turntable extends Component {
     this.theta += dt * this.omega;
     this.axis.theta = this.theta; this.axis.omega = this.omega; this.axis.tau = 0;
     this.extTau = 0;
+  }
+  // Demo mode: the plate turns exactly as its drive belt says.
+  followPort() {
+    this.theta = this.axis.theta; this.omega = this.axis.omega;
+    this.axis.tau = 0; this.extTau = 0;
   }
   inspect() { return { angle_deg: (this.theta * 180) / Math.PI, J_kgm2: this.J0 + this.Jpart }; }
 }

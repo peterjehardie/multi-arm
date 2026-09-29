@@ -45,6 +45,7 @@ export class Firmware {
       this.heaters[n] = { ...h, target: 0, temp: NaN, integ: 0, prevErr: 0, duty: 0, fault: null, runaway: { t: 0, T: 0 } };
     this.tool = null;        // which tool firmware believes is locked on
     this.spindle = { target: 0, duty: 0 };
+    this.caption = '';       // last M118 message (a job's own narration)
     this.log = [];
     this.stats = { moves: 0, lines: 0, maxStepsPerTick: 0 };
     mcu.onBoot = (t) => this.boot(t);
@@ -225,6 +226,14 @@ export class Firmware {
       case 'M6': if (need(this.homed)) this.toolChange(args.T ?? 0, t); break;
       case 'M114': this.msg(this.positionReport()); break;
       case 'M400': break;
+      // Print a message to the host (as Marlin does). A tour uses it for
+      // captions; lines starting with '@' ask the operator for an action.
+      case 'M118': {
+        const text = line.replace(/^M118\s*/i, '');
+        if (!text.startsWith('@')) this.caption = text;
+        this.msg(text);
+        break;
+      }
       // Exhaust fan of the enclosure (S0-255).
       case 'M106': this.fanDuty = Math.max(0, Math.min(1, (args.S ?? 255) / 255)); break;
       case 'M107': this.fanDuty = 0; break;

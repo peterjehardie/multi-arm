@@ -12,6 +12,15 @@
 // tool changer, limit switches.
 // Every 1 ms:   process contacts (deposit / cut), ADC filters, recorder.
 // Every 10 ms:  thermal network, wire and motor heating.
+//
+// Demo mode (mode: 'demo') keeps every part, wire and signal but swaps the
+// expensive fast physics for ideal versions, on a 1 ms step (DEMO_SCHEDULE):
+// drivers put exactly the sine-table current in each coil, rotors sit where
+// that current points them, gearboxes are rigid, and the arm and plate follow
+// their gearboxes without dynamics. Step pulses, logic edges, heat, extrusion,
+// deposition, cutting, tool changes, probing and the enclosure run as before.
+// Lost: current rise and back-EMF limits, stalls and step loss, wind-up,
+// backlash, gravity sag and inertia. Use it to show features, not to tune.
 
 import { Simulator } from '../core/sim.js';
 import { tfApply, tf, tfMul, sub, norm } from '../core/linalg.js';
@@ -25,12 +34,17 @@ import { GearMesh } from '../process/extruder.js';
 import { Firmware } from '../firmware/firmware.js';
 import { buildMachine, PINS } from './build.js';
 import { SPEC } from './spec.js';
+import { Operator } from './operator.js';
 
 const DEG = Math.PI / 180;
 
 export class Machine {
-  constructor({ spec = SPEC, dt = 25e-6, preheated = false, startHomed = false } = {}) {
+  constructor({ spec = SPEC, mode = 'full', dt, preheated = false, startHomed = false } = {}) {
+    if (mode !== 'full' && mode !== 'demo') throw new Error(`unknown mode ${mode}`);
     this.spec = spec;
+    this.mode = mode;
+    dt ??= mode === 'demo' ? 1e-3 : 25e-6;
+    this.schedule = mode === 'demo' ? DEMO_SCHEDULE : SCHEDULE;
     this.sim = new Simulator({ dt });
     const m = buildMachine(this.sim, spec);
     Object.assign(this, m);
@@ -45,7 +59,7 @@ export class Machine {
     // Power network.
     // The supply network's voltages move on millisecond time scales (bulk
     // capacitors behind wire resistance), so it is solved every 4th step.
-    this.netEvery = 4;
+    this.netEvery = mode === 'demo' ? 1 : 4;
     this.net = new DCNetwork(dt * this.netEvery);
     for (const c of this.A.components.values()) c.dcStamp?.(this.net);
     for (const w of this.wires) if (w.a.role === 'supply' && w.b.role === 'supply') this.net.addWire(w);
@@ -98,6 +112,7 @@ export class Machine {
     // Firmware on the controller board.
     this.firmware = new Firmware(this.board.mcu, { ...firmwareConfig(spec), startHomed });
     this.host.link(this.board);
+    this.operator = new Operator(this);
 
     this.recorder = new Recorder(this);
     this.setupStages();
@@ -158,7 +173,7 @@ export class Machine {
   // Build the simulator stages from SCHEDULE. Every call is method(dt, t).
   setupStages() {
     const groups = this.scheduleGroups();
-    for (const st of SCHEDULE) {
+    for (const st of this.schedule) {
       const ops = st.ops.map(([group, method, opt]) => {
         const g = groups[group];
         if (!g) throw new Error(`schedule: unknown group ${group}`);
@@ -270,6 +285,41 @@ export const SCHEDULE = [
     ],
   },
   { stage: 'slow', every: 40000, ops: [['mountedInertia', 'update']] },
+];
+
+// Demo mode: base step 1 ms, ideal drives, rigid gearboxes, kinematic arm and
+// plate. Same parts and wires; see the note at the top of this file.
+export const DEMO_SCHEDULE = [
+  {
+    stage: 'electrical+mechanical', every: 1, ops: [
+      ['supplyNetwork', 'step'],
+      ['buck', 'update'], ['board', 'update'], ['servo', 'update'],
+      ['drivers', 'updateIdeal'], ['mosfets', 'update'], ['extruder', 'update'],
+      ['steppers', 'followCurrent'], ['gearboxes', 'follow'], ['gearMeshes', 'exchange'],
+      ['spindle', 'integrate'], ['arm', 'followPorts'], ['turntable', 'followPort'],
+    ],
+  },
+  {
+    stage: 'kinematics', every: 1, ops: [
+      ['arm', 'updatePose'], ['turntable', 'updateBody'], ['toolChanger', 'update'],
+      ['sensorLinks', 'exchange'], ['limitSwitches', 'update'],
+    ],
+  },
+  {
+    stage: 'process', every: 1, ops: [
+      ['heldForces', 'clear'], ['deposition', 'update'], ['cutting', 'update'],
+      ['probeContact', 'update'], ['probes', 'update'],
+      ['board', 'adcUpdate'], ['recorder', 'sample'],
+    ],
+  },
+  {
+    stage: 'thermal', every: 10, ops: [
+      ['thermalLinks', 'exchange'], ['thermalBodies', 'thermalStep'], ['steppers', 'thermal'],
+      ['drivers', 'thermal'], ['wires', 'heat'], ['contacts', 'heat'], ['loops', 'refresh'],
+      ['supplyNetwork', 'checkDrift'],
+    ],
+  },
+  { stage: 'slow', every: 1000, ops: [['mountedInertia', 'update']] },
 ];
 
 // Firmware configuration derived from the nominal design (never the truth).
