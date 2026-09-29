@@ -1,18 +1,29 @@
 // Oscilloscope: up to four recorder channels, each with its own autoscaled
 // y range, over a selectable time window. Draws min/max per pixel column so
 // a 20 s window at 1 kHz stays crisp and fast.
+//
+// The channel pickers (selects) and the live readouts can live anywhere in
+// the page; `names` are optional elements that show each channel's name.
+// Trace colours come from the CSS tokens --ch1..--ch4 (theme aware).
 
 export const SCOPE_COLORS = ['#4cc9f0', '#ff5d8f', '#ffd166', '#06d6a0'];
 
+export function scopeColors() {
+  const css = getComputedStyle(document.documentElement);
+  return SCOPE_COLORS.map((c, k) => css.getPropertyValue(`--ch${k + 1}`).trim() || c);
+}
+
 export class Scope {
-  constructor({ canvas, selects, readouts, windowSelect }) {
+  constructor({ canvas, selects, readouts, names = [], windowSelect, onChange }) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
     this.selects = selects;
     this.readouts = readouts;
+    this.names = names;
     this.windowSelect = windowSelect;
+    this.onChange = onChange;
     this.m = null;
-    selects.forEach((s, k) => { s.style.borderColor = SCOPE_COLORS[k]; });
+    selects.forEach((s) => s.addEventListener('change', () => this.changed()));
   }
 
   attach(m, defaults) {
@@ -25,6 +36,24 @@ export class Scope {
       for (const n of names) sel.append(new Option(`${n} [${m.recorder.channels.get(n).unit}]`, n));
       sel.value = names.includes(prev) ? prev : '';
     });
+    this.changed();
+  }
+
+  // Set all four channels at once (missing names switch a channel off).
+  setChannels(list) {
+    if (!this.m) return;
+    this.selects.forEach((sel, k) => {
+      const n = list[k] ?? '';
+      sel.value = this.m.recorder.channels.has(n) ? n : '';
+    });
+    this.changed();
+  }
+
+  channels() { return this.selects.map((s) => s.value); }
+
+  changed() {
+    this.names.forEach((el, k) => { if (el) el.textContent = this.selects[k]?.value || 'off'; });
+    this.onChange?.(this.channels());
   }
 
   resize() {
@@ -44,6 +73,7 @@ export class Scope {
     const bg = css.getPropertyValue('--scope-bg').trim() || '#0b0e12';
     const grid = css.getPropertyValue('--scope-grid').trim() || '#1f2630';
     const text = css.getPropertyValue('--muted').trim() || '#8a94a3';
+    const colors = scopeColors();
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, W, H);
 
@@ -78,10 +108,10 @@ export class Scope {
     this.selects.forEach((sel, k) => { if (sel.value) active.push({ k, name: sel.value }); });
     if (!active.length) {
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText('Pick a channel above', W / 2, H / 2);
+      ctx.fillText('No signals selected: choose some in the Signals tab', W / 2, H / 2);
     }
     const labelW = 110 * dpr;
-    this.readouts.forEach((r) => { r.textContent = ''; });
+    this.readouts.forEach((r) => { r.textContent = '—'; });
     active.forEach(({ k, name }, slot) => {
       const ch = this.m.recorder.channels.get(name);
       if (!ch) return;
@@ -89,7 +119,7 @@ export class Scope {
       let lo = Infinity, hi = -Infinity;
       for (let i = 0; i < vs.length; i++) { const v = vs[i]; if (Number.isFinite(v)) { if (v < lo) lo = v; if (v > hi) hi = v; } }
       const last = vs.length ? vs[vs.length - 1] : NaN;
-      this.readouts[k].textContent = Number.isFinite(last) ? `${fmt(last)} ${ch.unit}` : '—';
+      if (this.readouts[k]) this.readouts[k].textContent = Number.isFinite(last) ? `${fmt(last)} ${ch.unit}` : '—';
       if (!(hi >= lo)) return;
       let span = hi - lo;
       if (span < 1e-9 + Math.abs(hi) * 1e-4) { const c = (hi + lo) / 2, d = Math.max(Math.abs(c) * 0.05, 1e-3); lo = c - d; hi = c + d; span = hi - lo; }
@@ -106,7 +136,7 @@ export class Scope {
         if (v < cmin[c]) cmin[c] = v;
         if (v > cmax[c]) cmax[c] = v;
       }
-      ctx.strokeStyle = SCOPE_COLORS[k]; ctx.lineWidth = 1.25 * dpr;
+      ctx.strokeStyle = colors[k]; ctx.lineWidth = 1.25 * dpr;
       ctx.beginPath();
       let pen = false;
       for (let c = 0; c < cols; c++) {
@@ -123,7 +153,7 @@ export class Scope {
       const hiT = `${fmt(hi)} ${ch.unit}`, loT = `${fmt(lo)} ${ch.unit}`;
       ctx.fillStyle = bg;
       ctx.fillRect(x - 2 * dpr, padT + ph - 14 * dpr, ctx.measureText(loT).width + 4 * dpr, 13 * dpr);
-      ctx.fillStyle = SCOPE_COLORS[k];
+      ctx.fillStyle = colors[k];
       ctx.textBaseline = 'top';
       ctx.fillText(hiT, x, 2 * dpr);
       ctx.textBaseline = 'bottom';

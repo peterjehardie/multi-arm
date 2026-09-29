@@ -31,7 +31,7 @@ export const DOCS = {
   },
   mosfet: {
     title: 'MOSFET switch module',
-    text: `A low-side electronic switch for a big load (heater, bed or spindle). A logic signal on SIG turns the transistor on, connecting the load to ground through a few milliohms. The gate can switch several times inside one physics step (PWM), so the sim integrates the load current piecewise between those exact switching times. The spindle module has a flyback diode that lets motor current keep flowing briefly when it switches off.`,
+    text: `A low-side electronic switch for a load (hot-end heater, bed heater, spindle or exhaust fan). A logic signal on SIG turns the transistor on, connecting the load to ground through a few milliohms. The gate can switch several times inside one physics step (PWM), so the sim integrates the load current piecewise between those exact switching times. The spindle module has a flyback diode that lets motor current keep flowing briefly when it switches off.`,
   },
   heater: {
     title: 'Heater',
@@ -59,7 +59,7 @@ export const DOCS = {
   },
   'tool-plate': {
     title: 'Tool plate',
-    text: `The mating plate on each tool, with pads for the pogo pins. When parked it sits in its rack holder; when locked it moves with the wrist. If the latch releases it away from its holder, the sim reports the tool as dropped.`,
+    text: `The mating plate on each tool (hot end, spindle, touch probe), with pads for the pogo pins. When parked it sits in its rack holder; when locked it moves with the wrist. If the latch releases it away from its holder, the sim reports the tool as dropped.`,
   },
   extruder: {
     title: 'Extruder and hot end',
@@ -92,6 +92,14 @@ export const DOCS = {
   host: {
     title: 'Host PC',
     text: `The computer streaming G-code to the controller over USB. It keeps up to 4 lines in flight and sends the next one each time the firmware replies "ok", just like a real print host.`,
+  },
+  enclosure: {
+    title: 'Enclosure (panels, door, exhaust fan)',
+    text: `A box of acrylic panels on an aluminium frame around the arm and the plate. Its air is one lump of heat: the hot end and bed warm it, and it loses heat to the room through the panels, with the exhaust air and, much faster, through an open door. The door has a switch the firmware reads: while the door is open the spindle is not allowed to run (an interlock), and a job that needs it waits until the door is shut. The exhaust fan is a small 24 V motor switched by a MOSFET (M106 on, M107 off); its speed follows its current and takes a second or two to spin up, and the air it moves carries heat and fumes out.`,
+  },
+  probe: {
+    title: 'Touch probe',
+    text: `A tool with a stylus on a spring-loaded, three-point seat. When the stylus tip presses on something (the part, the stock, the plate) it lifts off its seat after a few hundredths of a millimetre and its contact closes. The signal reaches the controller through the tool changer's pogo pins. The firmware moves down slowly (G38.2) until the contact closes, stops, and reports where it believes the tip was ("PRB:x,y,z"). Because the firmware only knows the nominal drawings, the reported heights show the machine's own small errors: this is how a real machine measures its bed, its part and itself.`,
   },
   part: {
     title: 'Mechanical part',
@@ -142,6 +150,10 @@ export const DOCS = {
   deposition: {
     title: 'Deposition (nozzle → part)',
     text: `Where the hot-end nozzle meets the part. The plastic the extruder pushed out is laid down along the nozzle's path in the plate's frame. If the nozzle is pressed into the part a stiff contact force pushes it back up, and the equal and opposite force pushes on the turntable.`,
+  },
+  'probe-contact': {
+    title: 'Probe contact (stylus → surface)',
+    text: `Where the probe's stylus tip meets whatever is under it: the workpiece's height map, or the bare plate. Each millisecond the sim works out how far the tip has been pushed below that surface. Past the probe's pre-travel the probe's contact closes; lifting the tip opens it again (with a little hysteresis). Nothing else about the part changes: a probe measures, it does not cut.`,
   },
   cutting: {
     title: 'Cutting (end mill → part)',

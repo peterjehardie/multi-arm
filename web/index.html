@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Multi-arm Sim</title>
-  <meta name="description" content="Physically anchored simulation of a DIY robotic arm with a rotating build plate, a hot end and a spindle.">
+  <title>Multi-arm Workshop</title>
+  <meta name="description" content="Physically anchored simulation of a DIY robotic arm with a rotating build plate, a tool changer (hot end, spindle, touch probe) and an enclosure.">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="./style.css">
   <script type="importmap">
@@ -12,123 +12,253 @@
   </script>
 </head>
 <body>
-  <header class="toolbar">
-    <div class="brand"><span class="logo" aria-hidden="true"></span>Multi-arm <span class="muted">physical sim</span></div>
-    <div class="group">
-      <button id="btnRun" class="primary" title="Run / pause (space)">Run</button>
-      <label class="field">speed
+  <a class="skip" href="#viewport">Skip to the 3D view</a>
+
+  <!-- ============================================================ top bar -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true"></span>
+      <span class="brand-text"><b>Multi-arm</b><span class="brand-sub">workshop simulator</span></span>
+    </div>
+
+    <div class="seg mode-seg" role="radiogroup" aria-label="Simulation mode" id="modeSeg" data-tour="mode">
+      <button type="button" role="radio" data-mode="demo" aria-checked="true" title="Demo: simplified physics (ideal motors, kinematic arm). Jobs run many times faster.">Demo</button>
+      <button type="button" role="radio" data-mode="full" aria-checked="false" title="Full physics: every coil current, gearbox, wire and heat flow is simulated. Slower, but closest to the real machine.">Full physics</button>
+    </div>
+
+    <div class="tb-group" data-tour="run">
+      <button id="btnRun" class="btn primary" type="button" title="Run or pause the simulation (Space)"><i data-icon="play"></i><span>Run</span></button>
+      <button id="btnReset" class="btn" type="button" title="Rebuild the machine from scratch (Shift+R)"><i data-icon="reset"></i><span class="lbl">Reset</span></button>
+      <label class="field" title="Simulation speed relative to real time. Max runs as fast as your computer can.">
+        <span class="lbl">Speed</span>
         <select id="speed">
           <option value="0.1">0.1×</option>
           <option value="0.25">0.25×</option>
           <option value="0.5">0.5×</option>
           <option value="1" selected>1×</option>
-          <option value="max">max</option>
-        </select>
-      </label>
-      <label class="field">job
-        <select id="job">
-          <option value="demo.gcode">Ring + slot (quick demo)</option>
-          <option value="knob-hybrid.gcode">Knob: print, then finish the dome</option>
-          <option value="knob-machined.gcode">Knob: carve from a wax block</option>
-          <option value="mill-wax.gcode">Pocket in wax</option>
-        </select>
-      </label>
-      <button id="btnDemo" title="Reset the machine and load the selected job">Load job</button>
-      <label class="filebtn" title="Slice your own STL and load it as a print job">Open STL&hellip;<input type="file" id="stlFile" accept=".stl,model/stl" hidden></label>
-    </div>
-    <div class="group">
-      <button id="btnReset">Reset</button>
-      <label class="check" title="Start with the arm already referenced (no homing run) and the heaters at temperature"><input type="checkbox" id="quick" checked> quick start</label>
-      <label class="check"><input type="checkbox" id="preheated" checked> preheated</label>
-      <label class="field">stock
-        <select id="stock">
-          <option value="">none</option>
-          <option value="wax">wax block</option>
-          <option value="foam">foam block</option>
-          <option value="pine">pine block</option>
+          <option value="max">Max</option>
         </select>
       </label>
     </div>
-    <div class="group">
-      <label class="check"><input type="checkbox" id="byCurrent"> colour wires by current</label>
-      <label class="check"><input type="checkbox" id="couplings" checked> couplings</label>
-      <label class="check"><input type="checkbox" id="toolpath" checked> toolpath</label>
-      <label class="field">view
-        <select id="camMode">
-          <option value="overview">whole machine</option>
-          <option value="work">build plate</option>
-          <option value="follow">follow the tool</option>
-        </select>
-      </label>
+
+    <div class="tb-spacer"></div>
+    <div id="tbActivity" class="tb-activity" aria-live="polite"></div>
+
+    <div class="tb-group">
+      <button id="btnTheme" class="btn icon-only" type="button" title="Colour theme: follows your system" aria-label="Colour theme"><i data-icon="auto"></i></button>
+      <button id="btnHelp" class="btn icon-only" type="button" title="Help, tour and keyboard shortcuts (?)" aria-label="Help"><i data-icon="help"></i></button>
     </div>
   </header>
 
   <main class="layout">
-    <section class="left">
-      <div id="viewport" class="viewport">
-        <div id="hint" class="hint">Pick a job, press <b>Load job</b>, then <b>Run</b></div>
-        <div id="problems" class="problems" hidden></div>
-        <div id="jobCard" class="jobcard" hidden>
-          <div class="job-title"><span id="jobName"></span><span id="jobPct" class="job-pct"></span></div>
-          <div class="job-bar"><span id="jobBar"></span></div>
-          <div id="jobAct" class="job-act"></div>
-          <div id="jobSec" class="job-sec"></div>
-          <div id="jobEta" class="job-eta"></div>
-        </div>
-        <div id="legend" class="legend" hidden></div>
+    <!-- ========================================================== jobs rail -->
+    <aside class="rail" aria-labelledby="railTitle" data-tour="jobs">
+      <div class="rail-head">
+        <h2 id="railTitle">Jobs</h2>
+        <p class="muted">Load a job, then press <b>Run</b>.</p>
       </div>
-      <div class="scope">
-        <div class="scope-bar">
-          <span class="scope-title">Scope</span>
-          <span class="chan"><select class="ch"></select><span class="rd"></span></span>
-          <span class="chan"><select class="ch"></select><span class="rd"></span></span>
-          <span class="chan"><select class="ch"></select><span class="rd"></span></span>
-          <span class="chan"><select class="ch"></select><span class="rd"></span></span>
-          <label class="field">window
+      <div id="jobList" class="joblist"></div>
+      <label class="jobitem stl" title="Slice your own STL model in the browser and load it as a print job">
+        <span class="job-ico"><i data-icon="upload"></i></span>
+        <span class="job-body">
+          <span class="job-title">Open your own STL&hellip;</span>
+          <span class="job-blurb">Slices a model in the page and prints it (parts up to about 40 mm).</span>
+        </span>
+        <input type="file" id="stlFile" accept=".stl,model/stl" class="visually-hidden">
+      </label>
+
+      <section class="setup" aria-labelledby="setupTitle">
+        <h3 id="setupTitle">Machine setup</h3>
+        <p id="modeNote" class="mode-note"></p>
+        <label class="check" title="Start with the joints already referenced (no homing run)"><input type="checkbox" id="quick" checked> <span>Quick start <span class="muted">(already homed)</span></span></label>
+        <label class="check" title="Hot end and bed start at printing temperature"><input type="checkbox" id="preheated" checked> <span>Preheated <span class="muted">(skip heat-up)</span></span></label>
+        <label class="field block">Stock on the plate
+          <select id="stock">
+            <option value="">None (or as the job says)</option>
+            <option value="wax">Wax block 30 × 30 × 8 mm</option>
+            <option value="foam">Foam block 30 × 30 × 8 mm</option>
+            <option value="pine">Pine block 30 × 30 × 8 mm</option>
+          </select>
+        </label>
+        <p class="muted small">Setup changes apply on Reset or when a job is loaded.</p>
+      </section>
+    </aside>
+
+    <!-- ========================================================== stage -->
+    <section class="stage">
+      <div id="viewport" class="viewport" tabindex="-1" data-tour="view">
+        <div class="ov ov-tl">
+          <div id="problems" class="problems" hidden></div>
+          <div id="jobCard" class="jobprog" hidden aria-live="polite">
+            <div class="jp-title"><span id="jobName"></span><span id="jobPct" class="jp-pct"></span></div>
+            <div class="jp-bar"><span id="jobBar"></span></div>
+            <div id="jobCaption" class="jp-caption" hidden></div>
+            <div id="jobAct" class="jp-act"></div>
+            <div id="jobSec" class="jp-sec"></div>
+            <div id="jobEta" class="jp-eta"></div>
+          </div>
+        </div>
+        <div id="hint" class="hint"></div>
+        <div class="ov ov-tr">
+          <div class="seg seg-glass" role="radiogroup" aria-label="Camera view" id="camSeg">
+            <button type="button" role="radio" data-cam="overview" aria-checked="true" title="Whole machine (1)"><i data-icon="cube"></i><span>Machine</span></button>
+            <button type="button" role="radio" data-cam="work" aria-checked="false" title="Build plate close-up (2)"><i data-icon="plate"></i><span>Plate</span></button>
+            <button type="button" role="radio" data-cam="follow" aria-checked="false" title="Follow the tool tip (3)"><i data-icon="follow"></i><span>Follow tool</span></button>
+          </div>
+        </div>
+        <div class="ov ov-bl" role="group" aria-label="Layers">
+          <button type="button" class="chip" id="layEnclosure" aria-pressed="true" title="Show the enclosure panels (N)" hidden><i data-icon="enclosure"></i><span>Enclosure</span></button>
+          <button type="button" class="chip" id="layCurrent" aria-pressed="false" title="Colour each wire by the current it carries (W)"><i data-icon="wires"></i><span>Wire current</span></button>
+          <button type="button" class="chip" id="layToolpath" aria-pressed="true" title="Show the planned tool path (T)"><i data-icon="path"></i><span>Toolpath</span></button>
+          <button type="button" class="chip" id="layCouplings" aria-pressed="true" title="Show gearboxes, cams, thermal contacts and other couplings (K)"><i data-icon="link"></i><span>Couplings</span></button>
+        </div>
+        <div class="ov ov-br">
+          <div id="legend" class="legend" hidden></div>
+        </div>
+      </div>
+
+      <section class="scopestrip" id="scopeStrip" aria-label="Scope" data-tour="scope">
+        <div class="strip-head">
+          <button type="button" class="strip-toggle" id="btnScope" aria-expanded="true" aria-controls="scopeBody" title="Show or hide the scope (B)"><i data-icon="chevron" class="chev"></i><span>Scope</span></button>
+          <span class="strip-sub muted small">four recorded signals, live</span><span class="tb-spacer"></span>
+          <label class="field compact" title="Time window shown">
+            <span class="visually-hidden">Window</span>
             <select id="scopeWin">
               <option value="1">1 s</option>
               <option value="5" selected>5 s</option>
               <option value="20">20 s</option>
             </select>
           </label>
+          <button type="button" class="btn ghost icon-only compact" id="btnScopeCfg" title="Choose signals (Signals tab)" aria-label="Choose signals"><i data-icon="gear"></i></button>
         </div>
-        <canvas id="scope"></canvas>
-      </div>
+        <div class="strip-body" id="scopeBody">
+          <div class="chan-legend" id="chanChips">
+            <button type="button" class="chanchip" data-k="0"><span class="cc-dot"></span><span class="cc-name"></span><span class="cc-val rd"></span></button>
+            <button type="button" class="chanchip" data-k="1"><span class="cc-dot"></span><span class="cc-name"></span><span class="cc-val rd"></span></button>
+            <button type="button" class="chanchip" data-k="2"><span class="cc-dot"></span><span class="cc-name"></span><span class="cc-val rd"></span></button>
+            <button type="button" class="chanchip" data-k="3"><span class="cc-dot"></span><span class="cc-name"></span><span class="cc-val rd"></span></button>
+          </div>
+          <canvas id="scope"></canvas>
+        </div>
+      </section>
     </section>
 
-    <aside class="panel">
-      <nav class="tabs" role="tablist">
-        <button class="tab active" data-tab="inspector" role="tab">Inspector</button>
-        <button class="tab" data-tab="console" role="tab">Console <span id="logBadge" class="badge" hidden></span></button>
-        <button class="tab" data-tab="parts" role="tab">Parts</button>
+    <!-- ========================================================== right panel -->
+    <aside class="panel" aria-label="Details" data-tour="panel">
+      <nav class="tabs" role="tablist" aria-label="Panels">
+        <button class="tab" role="tab" id="tabbtn-inspect" data-tab="inspect" aria-controls="tab-inspect" aria-selected="true" title="Inspect the selected part (I)"><i data-icon="inspect"></i><span>Inspect</span></button>
+        <button class="tab" role="tab" id="tabbtn-explore" data-tab="explore" aria-controls="tab-explore" aria-selected="false" tabindex="-1" title="Browse the machine by subsystem (E)"><i data-icon="tree"></i><span>Explore</span></button>
+        <button class="tab" role="tab" id="tabbtn-control" data-tab="control" aria-controls="tab-control" aria-selected="false" tabindex="-1" title="Drive the machine by hand (C)"><i data-icon="control"></i><span>Control</span></button>
+        <button class="tab" role="tab" id="tabbtn-signals" data-tab="signals" aria-controls="tab-signals" aria-selected="false" tabindex="-1" title="Choose what the scope plots (S)"><i data-icon="wave"></i><span>Signals</span></button>
+        <button class="tab" role="tab" id="tabbtn-console" data-tab="console" aria-controls="tab-console" aria-selected="false" tabindex="-1" title="Firmware messages and G-code (L)"><i data-icon="terminal"></i><span>Console</span><span id="logBadge" class="badge" hidden></span></button>
       </nav>
-      <div class="tabpane active" id="tab-inspector"><div id="inspector" class="inspector"></div></div>
-      <div class="tabpane" id="tab-console">
-        <div id="log" class="log"></div>
-        <form id="gform" class="gform" autocomplete="off">
-          <input id="gline" type="text" placeholder="G-code, e.g. G28  or  M105" spellcheck="false">
-          <button type="submit">Send</button>
-        </form>
+
+      <div class="tabpane active" id="tab-inspect" role="tabpanel" aria-labelledby="tabbtn-inspect"><div id="inspector" class="inspector"></div></div>
+
+      <div class="tabpane" id="tab-explore" role="tabpanel" aria-labelledby="tabbtn-explore" hidden>
+        <div class="pane-tools">
+          <div class="search"><i data-icon="search"></i><input id="partsFilter" type="search" placeholder="Find a part or wire" aria-label="Find a part or wire"></div>
+          <div class="seg small" role="radiogroup" aria-label="Group by" id="groupSeg">
+            <button type="button" role="radio" data-group="system" aria-checked="true">Subsystem</button>
+            <button type="button" role="radio" data-group="kind" aria-checked="false">Kind</button>
+          </div>
+        </div>
+        <div id="parts" class="tree"></div>
       </div>
-      <div class="tabpane" id="tab-parts">
-        <input id="partsFilter" class="filter" type="search" placeholder="Filter parts and connections">
-        <div id="parts" class="parts"></div>
+
+      <div class="tabpane" id="tab-control" role="tabpanel" aria-labelledby="tabbtn-control" hidden><div id="control" class="control"></div></div>
+
+      <div class="tabpane" id="tab-signals" role="tabpanel" aria-labelledby="tabbtn-signals" hidden>
+        <div class="signals">
+          <p class="muted">The scope under the 3D view plots up to four recorded signals, sampled 1000 times per simulated second. Each one gets its own vertical scale.</p>
+          <h3>Channels</h3>
+          <div class="chan-rows">
+            <label class="chanrow"><span class="cr-dot"></span><span class="cr-n">1</span><select class="ch" aria-label="Channel 1"></select></label>
+            <label class="chanrow"><span class="cr-dot"></span><span class="cr-n">2</span><select class="ch" aria-label="Channel 2"></select></label>
+            <label class="chanrow"><span class="cr-dot"></span><span class="cr-n">3</span><select class="ch" aria-label="Channel 3"></select></label>
+            <label class="chanrow"><span class="cr-dot"></span><span class="cr-n">4</span><select class="ch" aria-label="Channel 4"></select></label>
+          </div>
+          <h3>Presets</h3>
+          <div id="scopePresets" class="presets"></div>
+        </div>
+      </div>
+
+      <div class="tabpane" id="tab-console" role="tabpanel" aria-labelledby="tabbtn-console" hidden>
+        <div class="pane-tools">
+          <span class="muted small">Firmware replies, plant events and your commands</span>
+          <button type="button" class="btn ghost compact" id="btnClearLog" title="Clear the console"><i data-icon="clear"></i><span>Clear</span></button>
+        </div>
+        <div id="log" class="log" role="log" aria-live="off"></div>
+        <form id="gform" class="gform" autocomplete="off">
+          <input id="gline" type="text" placeholder="G-code, e.g. G28 or M114" spellcheck="false" aria-label="G-code line">
+          <button type="submit" class="btn primary"><i data-icon="send"></i><span>Send</span></button>
+        </form>
       </div>
     </aside>
   </main>
 
-  <footer class="status" id="status">
-    <span><i>t</i><b id="st-t">0.000 s</b></span>
-    <span><i>real-time</i><b id="st-rtf">—</b></span>
-    <span><i>hot end</i><b id="st-hot">—</b></span>
-    <span><i>bed</i><b id="st-bed">—</b></span>
-    <span><i>tool</i><b id="st-tool">—</b></span>
-    <span><i>tip error</i><b id="st-tip">—</b></span>
-    <span><i>spindle</i><b id="st-rpm">—</b></span>
-    <span><i>PSU</i><b id="st-psu">—</b></span>
-    <span><i>homed</i><b id="st-homed">—</b></span>
-    <span><i>queue</i><b id="st-queue">—</b></span>
+  <!-- ============================================================ status strip -->
+  <footer class="status" id="status" aria-label="Machine status">
+    <span class="st"><i>t</i><b id="st-t">0.000 s</b></span>
+    <span class="st"><i>speed</i><b id="st-rtf">—</b></span>
+    <span class="st"><i>mode</i><b id="st-mode">—</b></span>
+    <span class="st"><i>homed</i><b id="st-homed">—</b></span>
+    <span class="st"><i>tool</i><b id="st-tool">—</b></span>
+    <span class="st"><i>hot end</i><b id="st-hot">—</b></span>
+    <span class="st"><i>bed</i><b id="st-bed">—</b></span>
+    <span class="st"><i>spindle</i><b id="st-rpm">—</b></span>
+    <span class="st"><i>chamber</i><b id="st-chamber">—</b></span>
+    <span class="st"><i>door</i><b id="st-door">—</b></span>
+    <span class="st"><i>tip error</i><b id="st-tip">—</b></span>
+    <span class="st"><i>PSU</i><b id="st-psu">—</b></span>
+    <span class="st"><i>queue</i><b id="st-queue">—</b></span>
   </footer>
+
+  <!-- ============================================================ overlays -->
+  <div id="tour" class="tour" hidden>
+    <div class="tour-spot" id="tourSpot"></div>
+    <div class="tour-card" id="tourCard" role="dialog" aria-modal="true" aria-labelledby="tourTitle" aria-describedby="tourText">
+      <div class="tour-step" id="tourStep"></div>
+      <h2 id="tourTitle"></h2>
+      <p id="tourText"></p>
+      <div class="tour-nav">
+        <button type="button" class="btn ghost" id="tourSkip">Skip tour</button>
+        <span class="tour-dots" id="tourDots" aria-hidden="true"></span>
+        <button type="button" class="btn" id="tourBack">Back</button>
+        <button type="button" class="btn primary" id="tourNext">Next</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="help" class="modal" hidden>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+      <div class="modal-head">
+        <h2 id="helpTitle">Help</h2>
+        <button type="button" class="btn icon-only ghost" id="helpClose" aria-label="Close"><i data-icon="close"></i></button>
+      </div>
+      <p>A small DIY robot arm next to a rotating build plate. It swaps tools on its wrist: a <b>hot end</b> to print, a <b>spindle</b> to mill and a <b>touch probe</b> to measure. Everything happens through a physical thing: a wire, a gearbox, a heat path.</p>
+      <ol class="help-steps">
+        <li>Pick a job on the <b>Jobs</b> list and press <b>Load</b>.</li>
+        <li>Press <b>Run</b>. Watch the job card and the scope.</li>
+        <li>Click any part or wire in the 3D view to see what it is and what it is doing.</li>
+        <li>Use <b>Control</b> to move the arm, change tools, open the door or run the fan yourself.</li>
+      </ol>
+      <p><button type="button" class="btn primary" id="helpTour"><i data-icon="tour"></i><span>Take the tour again</span></button></p>
+      <h3><i data-icon="keyboard"></i> Keyboard shortcuts</h3>
+      <table class="keys">
+        <tr><td><kbd>Space</kbd></td><td>Run / pause</td></tr>
+        <tr><td><kbd>Shift</kbd> + <kbd>R</kbd></td><td>Reset the machine</td></tr>
+        <tr><td><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd></td><td>Camera: machine, plate, follow tool</td></tr>
+        <tr><td><kbd>I</kbd> <kbd>E</kbd> <kbd>C</kbd> <kbd>S</kbd> <kbd>L</kbd></td><td>Panels: Inspect, Explore, Control, Signals, Console</td></tr>
+        <tr><td><kbd>W</kbd> <kbd>T</kbd> <kbd>K</kbd> <kbd>N</kbd></td><td>Layers: wire current, toolpath, couplings, enclosure</td></tr>
+        <tr><td><kbd>B</kbd></td><td>Show / hide the scope</td></tr>
+        <tr><td><kbd>/</kbd></td><td>Type a G-code command</td></tr>
+        <tr><td><kbd>Esc</kbd></td><td>Clear the selection, close this dialog</td></tr>
+        <tr><td><kbd>?</kbd></td><td>This help</td></tr>
+      </table>
+      <p class="muted small">Mouse: drag to orbit, right-drag to pan, scroll to zoom, click to inspect.</p>
+    </div>
+  </div>
 
   <script type="module" src="./app.js"></script>
 </body>

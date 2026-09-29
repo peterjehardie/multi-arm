@@ -58,22 +58,27 @@ function el(tag, attrs = {}, ...kids) {
 }
 
 export class Inspector {
-  constructor(root, { onSelect }) {
+  constructor(root, { onSelect, suggestions = () => [] }) {
     this.root = root;
     this.onSelect = onSelect;
+    this.suggestions = suggestions;
     this.m = null;
     this.ref = null;
     this.liveBody = null;
     this.showEmpty();
   }
-  attach(m) { this.m = m; }
+  attach(m) { this.m = m; if (!this.ref) this.showEmpty(); }
 
   showEmpty() {
     this.ref = null;
     this.liveBody = null;
+    const sugg = (this.m ? this.suggestions(this.m) : []).filter((s) => s && s.ref);
     this.root.replaceChildren(el('div', { class: 'empty' },
-      el('p', {}, 'Click a part or a wire in the 3D view (or pick one in the Parts tab) to see what it is and what the simulation is doing inside it.'),
-      el('p', { class: 'muted' }, 'Drag to orbit, right-drag to pan, scroll to zoom.')));
+      el('h3', {}, 'Nothing selected'),
+      el('p', {}, 'Click a part or a wire in the 3D view, or browse the Explore tab, to see what it is, its live values and what it connects to.'),
+      sugg.length ? el('p', { class: 'muted small' }, 'Or start with one of these:') : null,
+      sugg.length ? el('div', { class: 'suggest' }, ...sugg.map((s) => el('button', { type: 'button', onclick: () => this.onSelect(s.ref) }, s.label))) : null,
+      el('p', { class: 'muted small' }, 'Mouse: drag to orbit, right-drag to pan, scroll to zoom. Esc clears the selection.')));
   }
 
   link(label, ref, cls = '') {
