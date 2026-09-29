@@ -4,13 +4,16 @@
 |---|---|---|---|
 | `three.module.min.js` | `three/build/three.module.min.js` from the npm package `three` | 0.170.0 (r170) | MIT, Copyright 2010-2024 three.js authors |
 | `OrbitControls.js` | `three/examples/jsm/controls/OrbitControls.js` from the same package | 0.170.0 (r170) | MIT, Copyright 2010-2024 three.js authors |
+| `RoomEnvironment.js` | `three/examples/jsm/environments/RoomEnvironment.js` from the same package | 0.170.0 (r170) | MIT, Copyright 2010-2024 three.js authors |
+| `RoundedBoxGeometry.js` | `three/examples/jsm/geometries/RoundedBoxGeometry.js` from the same package | 0.170.0 (r170) | MIT, Copyright 2010-2024 three.js authors |
+| `BufferGeometryUtils.js` | `three/examples/jsm/utils/BufferGeometryUtils.js` from the same package | 0.170.0 (r170) | MIT, Copyright 2010-2024 three.js authors |
 
-Both files are unmodified copies. They are vendored so the viewer works
+All files are unmodified copies. They are vendored so the viewer works
 offline and without a build step; `web/index.html` maps the bare specifier
-`three` to `./vendor/three.module.min.js` with an import map (OrbitControls
-imports `three`).
+`three` to `./vendor/three.module.min.js` with an import map (the addons
+import `three`).
 
-To update: `npm pack three@<version>`, extract, and copy the two files above.
+To update: `npm pack three@<version>`, extract, and copy the files above.
 
 Licence text (MIT):
 

@@ -116,6 +116,77 @@ export function buildMachine(sim, spec = SPEC) {
   };
   for (const f of Object.values(fets)) f.port('SGND').required = false;
 
+  // ------------------------------------------------------------ cable routes
+  // Waypoints are shared objects: wires that pass the same waypoint run in
+  // one bundle there. Bench runs lie on the bench, the arm harness is clipped
+  // to the top face of each link with a service loop on the free (-y) side of
+  // every joint, and every cable into the enclosure passes a gland in the
+  // back wall. Keep runs short: a wire is cut to its route length + slack.
+  const W = (x, y, z) => ({ body: world, p: [x, y, z] });
+  const on = (body, x, y, z) => ({ body, p: [x, y, z] });
+  const [gA, gB] = spec.enclosure.glands;
+  const drvY = (k) => 0.14 - k * 0.045;
+  // Motor side (-x) of the driver column: a collector the phase wires drop into.
+  const Dk = driverNames.map((_, k) => W(-0.156, drvY(k) - 0.003, 0.006));
+  const dChain = (k) => (k <= 3 ? Dk.slice(k, 4) : k === 5 ? [Dk[5], Dk[4]] : [Dk[4]]);
+  // 24 V bus from the distribution block along the drivers' supply side.
+  const P0 = W(-0.235, 0.126, 0.005), P1 = W(-0.165, 0.126, 0.005);
+  const Pd = driverNames.map((_, k) => W(-0.163, drvY(k) + 0.004, 0.006));
+  const pChain = (k) => [P0, P1, ...(k === 0 ? [Pd[0]] : Pd.slice(1, k + 1))];
+  // Logic: board -> the gap below each driver -> the driver's logic (+x) side.
+  // The harness shares the gap below the j4 driver (T1, T2).
+  const T1 = W(-0.158, -0.0175, 0.006), T2 = W(-0.115, -0.0175, 0.006);
+  const Lg = driverNames.map((_, k) => (k === 3 ? [T1, T2] : [W(-0.158, drvY(k) - 0.0225, 0.004), W(-0.108, drvY(k) - 0.0225, 0.004)]));
+  const La = driverNames.map((_, k) => W(-0.107, drvY(k) - 0.003, 0.009));
+  const logic = (k) => [...Lg[k], La[k]];
+  const exitGnd = W(-0.215, -0.045, 0.004), exit3v3 = W(-0.213, 0.022, 0.004);
+  // Corridor between the board and the MOSFET modules.
+  const S1 = W(-0.212, -0.047, 0.004), S2 = W(-0.33, -0.055, 0.004), H1 = W(-0.362, -0.062, 0.005);
+  // 24 V to the MOSFET modules, round the PSU's corner and down their input side.
+  const F1 = W(-0.288, 0.05, 0.005), F2 = W(-0.43, 0.03, 0.005);
+  const fetOrder = ['hotend', 'bed', 'spindle', 'fan'];
+  const Fd = fetOrder.map((n, k) => W(-0.43, -0.036 - k * 0.05, 0.005));
+  const fChain = (n) => [P0, F1, F2, ...Fd.slice(0, fetOrder.indexOf(n) + 1)];
+
+  // Arm harness (gland A): along the bench, up through the hollow base and
+  // yaw axis, up the back of the turret, then link by link.
+  const L2 = truth.L2, L3 = truth.L3;
+  const gateA = [T1, T2, W(-0.1, -0.006, 0.01), W(...gA), W(-0.078, 0, 0.009)];
+  const footA = on(base, -0.058, 0, 0.015);
+  const baseRun = [footA, on(base, -0.036, 0, 0.018), on(base, -0.012, 0, 0.03), on(base, 0, 0, 0.058)];
+  const turret = [on(link1, 0, 0, 0.004), on(link1, -0.022, 0, 0.014), on(link1, -0.046, 0, 0.032)];
+  const shoulder = [on(link1, -0.04, -0.03, 0.06), on(link1, -0.018, -0.047, 0.08), on(link2, 0.004, -0.047, 0.02)];
+  const run2 = [on(link2, 0.035, 0, 0.024), on(link2, L2 - 0.07, 0, 0.024)];
+  const elbow = [on(link2, L2 - 0.03, -0.022, 0.022), on(link2, L2 - 0.004, -0.045, 0.018), on(link3, 0.004, -0.045, 0.018)];
+  const run3 = [on(link3, 0.035, 0, 0.022), on(link3, L3 - 0.07, 0, 0.022)];
+  const wristLoop = [on(link3, L3 - 0.03, -0.022, 0.02), on(link3, L3 - 0.004, -0.043, 0.016), on(link4, 0.004, -0.043, 0.016), on(link4, 0.02, -0.01, 0.026)];
+  const toTurret = [...gateA, ...baseRun, ...turret];
+  const toLink2 = [...toTurret, ...shoulder, ...run2];
+  const toLink3 = [...toLink2, ...elbow, ...run3];
+  const toLink4 = [...toLink3, ...wristLoop];
+  const j2Branch = on(link1, -0.036, 0.043, 0.045);
+  const armRoutes = {
+    j1: { motor: [...gateA, footA, on(base, -0.04, -0.05, 0.016), on(base, -0.018, -0.079, 0.016)],
+      sw: [...gateA, footA, on(base, -0.03, 0.05, 0.016), on(base, 0.028, 0.05, 0.03), on(base, 0.045, 0.036, 0.058)] },
+    j2: { motor: [...toTurret, j2Branch, on(link1, -0.012, 0.047, 0.058)],
+      sw: [...toTurret, j2Branch, on(link1, 0.026, 0.043, 0.052)] },
+    j3: { motor: [...toLink2, on(link2, L2 - 0.075, 0.026, 0.004), on(link2, L2 - 0.03, 0.042, -0.024)],
+      sw: [...toLink2, on(link2, L2 - 0.075, 0.024, 0.02)] },
+    j4: { motor: [...toLink3, on(link3, L3 - 0.075, 0.024, 0.004), on(link3, L3 - 0.03, 0.036, -0.024)],
+      sw: [...toLink3, on(link3, L3 - 0.075, 0.022, 0.02)] },
+  };
+  const servoRoute = [...toLink4, on(link4, 0.026, 0.022, 0.014)];
+  const changerRoute = [...toLink4, on(link4, 0.036, -0.012, 0.024)];
+
+  // Plate, table drive and door (gland B), all along the enclosure floor.
+  const gateB = [W(-0.152, -0.105, 0.006), W(-0.112, -0.112, 0.006), W(...gB), W(-0.07, -0.12, 0.008)];
+  const floorB = W(0.06, -0.125, 0.005);
+  const bedTail = [floorB, W(0.2, -0.07, 0.005), W(0.285, -0.05, 0.009), W(0.284, -0.012, 0.01)];
+  const tableSwTail = [floorB, W(0.14, -0.06, 0.005), W(0.17, -0.03, 0.01)];
+  const doorTail = [W(-0.05, -0.3, 0.006), W(0.378, -0.312, 0.006), W(0.392, -0.31, 0.03), W(0.392, -0.31, 0.365), W(0.405, -0.29, 0.39)];
+  // Exhaust fan: outside, along the bench and up the back wall.
+  const fanRoute = [W(-0.35, -0.205, 0.005), W(-0.112, -0.215, 0.005), W(-0.101, -0.215, 0.03), W(-0.101, -0.215, 0.47), W(-0.101, 0.19, 0.47), W(-0.097, 0.2, 0.455)];
+
   // ------------------------------------------------------------ wires
   let wn = 0;
   const wire = (a, b, opts = {}) => A.connect(new Wire(opts.id ?? `w${++wn}`, A.p(a), A.p(b), opts));
@@ -137,41 +208,28 @@ export function buildMachine(sim, spec = SPEC) {
   driverNames.forEach((n, k) => {
     const d = `drv_${n}`;
     // Two drivers share each distribution screw (as on a real block).
-    wire(`tb24.${pBars[k >> 1]}`, `${d}.VM`, { awg: 20, color: RED, id: `${n}-VM` });
-    wire(`tb24.${nBars[k >> 1]}`, `${d}.GND`, { awg: 20, color: BLK, id: `${n}-GND` });
-    wire(`board.3V3_${k + 2}`, `${d}.VIO`, { awg: 26, color: '#e74c3c', id: `${n}-VIO` });
-    wire(`board.GND${k + 2}`, `${d}.GNDL`, { awg: 26, color: BLK, id: `${n}-GNDL` });
-    wire(`board.${PINS[n].step}`, `${d}.STEP`, { awg: 26, color: YEL, id: `${n}-STEP` });
-    wire(`board.${PINS[n].dir}`, `${d}.DIR`, { awg: 26, color: ORG, id: `${n}-DIR` });
+    wire(`tb24.${pBars[k >> 1]}`, `${d}.VM`, { awg: 20, color: RED, route: pChain(k), id: `${n}-VM` });
+    wire(`tb24.${nBars[k >> 1]}`, `${d}.GND`, { awg: 20, color: BLK, route: pChain(k), id: `${n}-GND` });
+    wire(`board.3V3_${k + 2}`, `${d}.VIO`, { awg: 26, color: '#e74c3c', route: [exit3v3, ...logic(k)], id: `${n}-VIO` });
+    wire(`board.GND${k + 2}`, `${d}.GNDL`, { awg: 26, color: BLK, route: [exitGnd, ...logic(k)], id: `${n}-GNDL` });
+    wire(`board.${PINS[n].step}`, `${d}.STEP`, { awg: 26, color: YEL, route: logic(k), id: `${n}-STEP` });
+    wire(`board.${PINS[n].dir}`, `${d}.DIR`, { awg: 26, color: ORG, route: logic(k), id: `${n}-DIR` });
   });
   // Enable: one signal daisy-chained through a small splice to all drivers.
   const splice = A.add(new TerminalBlock('en_splice', [['E', 7, 'passthru']], { mount: at(-0.17, -0.12, 0.01), label: 'EN splice' }));
   wire(`board.${PINS.en}`, 'en_splice.E1', { awg: 26, color: WHT, id: 'EN' });
-  driverNames.forEach((n, k) => wire(`en_splice.E${k + 2}`, `drv_${n}.EN`, { awg: 26, color: WHT, id: `${n}-EN` }));
+  driverNames.forEach((n, k) => wire(`en_splice.E${k + 2}`, `drv_${n}.EN`, { awg: 26, color: WHT, route: logic(k), id: `${n}-EN` }));
   splice.passive = true;
 
   // MOSFET modules: power and gate signal.
   for (const [n, f] of Object.entries(fets)) {
     const bar = n === 'bed' ? ['P4', 'N4'] : n === 'fan' ? ['P6', 'N6'] : ['P5', 'N5'];
-    wire(`tb24.${bar[0]}`, `${f.id}.VIN+`, { awg: n === 'bed' ? 16 : 18, color: RED, id: `${n}-VIN+` });
-    wire(`tb24.${bar[1]}`, `${f.id}.VIN-`, { awg: n === 'bed' ? 16 : 18, color: BLK, id: `${n}-VIN-` });
-    wire(`board.${PINS[n]}`, `${f.id}.SIG`, { awg: 26, color: PUR, id: `${n}-SIG` });
+    wire(`tb24.${bar[0]}`, `${f.id}.VIN+`, { awg: n === 'bed' ? 16 : 18, color: RED, route: fChain(n), id: `${n}-VIN+` });
+    wire(`tb24.${bar[1]}`, `${f.id}.VIN-`, { awg: n === 'bed' ? 16 : 18, color: BLK, route: fChain(n), id: `${n}-VIN-` });
+    wire(`board.${PINS[n]}`, `${f.id}.SIG`, { awg: 26, color: PUR, route: [S1, S2], id: `${n}-SIG` });
   }
   // USB from the host PC.
-  A.connect(new UsbCable('usb', host.port('USB'), board.port('USB'), { route: [] }));
-
-  // ------------------------------------------------------------ harness route up the arm
-  const harness = [
-    { body: world, p: [-0.10, 0.0, 0.01] }, { body: base, p: [-0.045, 0.0, 0.03] },
-    { body: base, p: [0, 0, 0.07] }, { body: link1, p: [0, 0.035, 0.07] },
-    { body: link2, p: [0.02, 0.03, 0.025] }, { body: link2, p: [truth.L2 - 0.02, 0.03, 0.025] },
-    { body: link3, p: [0.02, 0.03, 0.025] }, { body: link3, p: [truth.L3 - 0.02, 0.03, 0.025] },
-    { body: link4, p: [0.01, 0.03, 0.02] },
-  ];
-  const upTo = (body) => {
-    const i = harness.findIndex((w) => w.body === body);
-    return harness.slice(0, i < 0 ? harness.length : i + 1);
-  };
+  A.connect(new UsbCable('usb', host.port('USB'), board.port('USB'), { route: [W(-0.47, -0.24, 0.003), W(-0.465, -0.03, 0.003), W(-0.335, -0.012, 0.004)] }));
 
   // ------------------------------------------------------------ joint drives
   const motors = {}, gearboxes = {}, switches = {};
@@ -189,8 +247,8 @@ export function buildMachine(sim, spec = SPEC) {
     const m = A.add(new StepperMotor(`mot_${n}`, ms, { mount: motorMounts[n], label: `${d.motor} ${n}`, theta0: qInit * d.ratio }));
     m.mass = ms.mass + 0.2; // motor + gearbox housing
     motors[n] = m;
-    const route = n === 'table' ? [{ body: world, p: [-0.05, -0.12, 0.01] }, { body: world, p: [0.2, -0.13, 0.01] }]
-      : upTo(motorMounts[n].body);
+    const k = driverNames.indexOf(n);
+    const route = n === 'table' ? [...dChain(k), ...gateB, floorB, W(0.2, -0.158, 0.005)] : [...dChain(k), ...armRoutes[n].motor];
     ['A1', 'A2', 'B1', 'B2'].forEach((ph, k) =>
       wire(`drv_${n}.${ph}`, `mot_${n}.${ph}`, { awg: 22, color: phaseColors[k], route, id: `${n}-${ph}` }));
   }
@@ -222,9 +280,9 @@ export function buildMachine(sim, spec = SPEC) {
     }));
     switches[n] = s;
     A.connect(new SensorCoupling(`cam_${n}`, jointPort(n), s.port('cam'), { kind: 'cam' }));
-    const route = n === 'table' ? [{ body: world, p: [-0.05, -0.10, 0.01] }] : upTo(swMount[n].body);
+    const route = n === 'table' ? [...gateB, ...tableSwTail] : armRoutes[n].sw;
     wire(`board.${PINS[n].home}`, `sw_${n}.COM`, { awg: 26, color: GRY, route, id: `${n}-SW` });
-    wire(`board.GND${9 + ['j1', 'j2', 'j3', 'j4', 'table'].indexOf(n)}`, `sw_${n}.NO`, { awg: 26, color: BLK, route, id: `${n}-SWG` });
+    wire(`board.GND${9 + ['j1', 'j2', 'j3', 'j4', 'table'].indexOf(n)}`, `sw_${n}.NO`, { awg: 26, color: BLK, route: [exitGnd, ...route], id: `${n}-SWG` });
   }
 
   // ------------------------------------------------------------ build plate
@@ -235,14 +293,14 @@ export function buildMachine(sim, spec = SPEC) {
   bedHeater.size = [0.17, 0.17, 0.0015];
   const bedTherm = A.add(new Thermistor('bed_therm', { mount: { body: tableBody, p: [0.02, 0.0, -0.007] }, C: 0.02 }));
   const slip = A.add(new SlipRing('slip', { rotorBody: tableBody, mount: { body: world, p: [spec.table.center[0], 0, 0.012] }, label: 'Slip ring' }));
-  const bedRoute = [{ body: world, p: [-0.30, -0.10, 0.01] }, { body: world, p: [0.15, -0.02, 0.01] }];
-  const rotorRoute = [{ body: tableBody, p: [0, 0.01, -0.02] }];
+  const bedRoute = [W(-0.35, -0.1, 0.005), ...gateB, ...bedTail];
+  const rotorRoute = [{ body: tableBody, p: [0, 0, -0.025] }];
   wire('fet_bed.OUT+', 'slip.S1', { awg: 16, color: RED, route: bedRoute, id: 'bed+' });
   wire('fet_bed.OUT-', 'slip.S2', { awg: 16, color: BLK, route: bedRoute, id: 'bed-' });
   wire('slip.R1', 'bed_heater.a', { awg: 16, color: RED, route: rotorRoute });
   wire('slip.R2', 'bed_heater.b', { awg: 16, color: BLK, route: rotorRoute });
-  wire('board.TH1', 'slip.S3', { awg: 26, color: WHT, route: bedRoute, id: 'bedT' });
-  wire('board.TH1G', 'slip.S4', { awg: 26, color: WHT, route: bedRoute, id: 'bedTG' });
+  wire('board.TH1', 'slip.S3', { awg: 26, color: WHT, route: [exitGnd, ...gateB, ...bedTail], id: 'bedT' });
+  wire('board.TH1G', 'slip.S4', { awg: 26, color: WHT, route: [exitGnd, ...gateB, ...bedTail], id: 'bedTG' });
   wire('slip.R3', 'bed_therm.a', { awg: 26, color: WHT, route: rotorRoute });
   wire('slip.R4', 'bed_therm.b', { awg: 26, color: WHT, route: rotorRoute });
 
@@ -252,21 +310,22 @@ export function buildMachine(sim, spec = SPEC) {
   const servo = A.add(new Servo('servo', { mount: { body: link4, p: [truth.L4 * 0.5, 0.03, 0.0] }, label: 'Latch servo' }));
   servo.mass = 0.013;
   A.connect(new SensorCoupling('latch_link', servo.port('horn'), master.port('latch'), { kind: 'linkage' }));
-  const wrist = upTo(link4);
-  wire('tb5.V3', 'servo.V+', { awg: 24, color: RED, route: wrist, id: 'servo-5V' });
-  wire('tb5.G3', 'servo.GND', { awg: 24, color: BLK, route: wrist, id: 'servo-GND' });
-  wire(`board.${PINS.servo}`, 'servo.SIG', { awg: 26, color: ORG, route: wrist, id: 'servo-SIG' });
+  const tb5Exit = W(-0.19, 0.06, 0.005);
+  wire('tb5.V3', 'servo.V+', { awg: 24, color: RED, route: [tb5Exit, ...servoRoute], id: 'servo-5V' });
+  wire('tb5.G3', 'servo.GND', { awg: 24, color: BLK, route: [tb5Exit, ...servoRoute], id: 'servo-GND' });
+  wire(`board.${PINS.servo}`, 'servo.SIG', { awg: 26, color: ORG, route: servoRoute, id: 'servo-SIG' });
   // Harness to the pogo pins.
-  wire('fet_hotend.OUT+', 'changer.P1', { awg: 20, color: RED, route: wrist, id: 'heater+' });
-  wire('fet_hotend.OUT-', 'changer.P2', { awg: 20, color: BLK, route: wrist, id: 'heater-' });
-  wire('board.TH0', 'changer.P3', { awg: 26, color: WHT, route: wrist, id: 'hotT' });
-  wire('board.TH0G', 'changer.P4', { awg: 26, color: WHT, route: wrist, id: 'hotTG' });
+  const fetExit = [H1, S2, S1];
+  wire('fet_hotend.OUT+', 'changer.P1', { awg: 20, color: RED, route: [...fetExit, ...changerRoute], id: 'heater+' });
+  wire('fet_hotend.OUT-', 'changer.P2', { awg: 20, color: BLK, route: [...fetExit, ...changerRoute], id: 'heater-' });
+  wire('board.TH0', 'changer.P3', { awg: 26, color: WHT, route: [S1, ...changerRoute], id: 'hotT' });
+  wire('board.TH0G', 'changer.P4', { awg: 26, color: WHT, route: [S1, ...changerRoute], id: 'hotTG' });
   ['A1', 'A2', 'B1', 'B2'].forEach((ph, k) =>
-    wire(`drv_e.${ph}`, `changer.P${5 + k}`, { awg: 22, color: phaseColors[k], route: wrist, id: `e-${ph}` }));
-  wire('fet_spindle.OUT+', 'changer.P9', { awg: 18, color: RED, route: wrist, id: 'spindle+' });
-  wire('fet_spindle.OUT-', 'changer.P10', { awg: 18, color: BLK, route: wrist, id: 'spindle-' });
-  wire(`board.${PINS.probe}`, 'changer.P11', { awg: 26, color: '#16a085', route: wrist, id: 'probe' });
-  wire('board.GND15', 'changer.P12', { awg: 26, color: BLK, route: wrist, id: 'probeG' });
+    wire(`drv_e.${ph}`, `changer.P${5 + k}`, { awg: 22, color: phaseColors[k], route: [...dChain(5), ...changerRoute], id: `e-${ph}` }));
+  wire('fet_spindle.OUT+', 'changer.P9', { awg: 18, color: RED, route: [...fetExit, ...changerRoute], id: 'spindle+' });
+  wire('fet_spindle.OUT-', 'changer.P10', { awg: 18, color: BLK, route: [...fetExit, ...changerRoute], id: 'spindle-' });
+  wire(`board.${PINS.probe}`, 'changer.P11', { awg: 26, color: '#16a085', route: changerRoute, id: 'probe' });
+  wire('board.GND15', 'changer.P12', { awg: 26, color: BLK, route: [exitGnd, ...changerRoute], id: 'probeG' });
 
   // ------------------------------------------------------------ tools
   const holderT = (H) => {
@@ -332,10 +391,10 @@ export function buildMachine(sim, spec = SPEC) {
   const encFaces = [];
   const toChamber = (port, G, id) => A.connect(new ThermalContact(id, port, enc.port(`air${encFaces.push(id) - 1}`), { G, kind: 'convection' }));
   A.connect(new EnclosureWall('enclosure_wall', enc.port('wall'), air.port(`air${airFace++}`), { G: 0, kind: 'convection' }));
-  wire('fet_fan.OUT+', 'enclosure.FAN+', { awg: 24, color: RED, route: [{ body: world, p: [-0.30, -0.22, 0.01] }, { body: world, p: [-0.10, 0.20, 0.17] }], id: 'fan+' });
-  wire('fet_fan.OUT-', 'enclosure.FAN-', { awg: 24, color: BLK, route: [{ body: world, p: [-0.30, -0.22, 0.01] }, { body: world, p: [-0.10, 0.20, 0.16] }], id: 'fan-' });
-  wire(`board.${PINS.door}`, 'enclosure.DOOR_COM', { awg: 26, color: '#d35400', route: [{ body: world, p: [-0.12, -0.30, 0.01] }, { body: world, p: [0.42, -0.30, 0.01] }], id: 'door' });
-  wire('board.GND14', 'enclosure.DOOR_NO', { awg: 26, color: BLK, route: [{ body: world, p: [-0.12, -0.30, 0.01] }, { body: world, p: [0.42, -0.30, 0.01] }], id: 'doorG' });
+  wire('fet_fan.OUT+', 'enclosure.FAN+', { awg: 24, color: RED, route: fanRoute, id: 'fan+' });
+  wire('fet_fan.OUT-', 'enclosure.FAN-', { awg: 24, color: BLK, route: fanRoute, id: 'fan-' });
+  wire(`board.${PINS.door}`, 'enclosure.DOOR_COM', { awg: 26, color: '#d35400', route: [exitGnd, ...gateB, ...doorTail], id: 'door' });
+  wire('board.GND14', 'enclosure.DOOR_NO', { awg: 26, color: BLK, route: [exitGnd, ...gateB, ...doorTail], id: 'doorG' });
 
   // Bed thermal network.
   A.connect(new ThermalContact('tc_bed_pad', bedHeater.port('surface'), bedPlate.port('heater'), { G: 30 }));
