@@ -20,15 +20,16 @@ export const MATERIALS = {
 export const MATERIAL_BY_ID = Object.values(MATERIALS);
 
 export class Workpiece extends Component {
-  static PARAMS = ['cell', 'n', 'half'];
+  static PARAMS = ['cell', 'n', 'half', 'plateRadius'];
   static STATE = ['h[]', 'mat[]', 'volumeAdded', 'volumeRemoved'];
-  constructor(id, { body, size = 0.12, cell = 0.4e-3, ...opts }) {
+  constructor(id, { body, size = 0.12, cell = 0.4e-3, plateRadius = Infinity, ...opts }) {
     super(id, { ...opts, kind: 'workpiece', mount: { body, p: [0, 0, 0] } });
     this.body = body;
     this.size = [size, size, 0.001];
     this.cell = cell;
     this.n = Math.round(size / cell);
     this.half = size / 2;
+    this.plateRadius = plateRadius; // the plate itself: what a probe touches where there is no part
     this.h = new Float32Array(this.n * this.n);
     this.mat = new Uint8Array(this.n * this.n);
     this.dirty = { x0: 0, y0: 0, x1: this.n - 1, y1: this.n - 1, any: true };

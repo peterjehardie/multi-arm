@@ -16,7 +16,7 @@ const V33 = 3.3;
 export class ControllerBoard extends Component {
   static PARAMS = [];
   static STATE = ['running', 'adcState.TH0.v', 'adcState.TH1.v', 'load.current'];
-  constructor(id, { sim, rng, gpio = 23, ...opts }) {
+  constructor(id, { sim, rng, gpio = 26, ...opts }) {
     super(id, { ...opts, kind: 'controller', size: [0.085, 0.056, 0.015] });
     this.sim = sim;
     this.rng = rng;

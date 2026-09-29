@@ -145,6 +145,7 @@ export class Machine {
       steppers: this.stepperList, spindle: [this.spindle], arm: [arm], turntable: [table],
       toolChanger: [this.changer], sensorLinks: this.sensorLinks, limitSwitches: this.switchList,
       deposition: [this.deposition], cutting: [this.cutting], recorder: [this.recorder],
+      probeContact: [this.probeContact], probes: [this.probe],
       thermalLinks: this.thermalLinks, thermalBodies: this.thermalBodies, wires: this.wires,
       contacts: this.contacts,
       // The part stands on the plate, so its inertia turns with it (the
@@ -182,7 +183,7 @@ export class Machine {
     const tool = this.master.tool;
     if (!tool) return tfApply(this.arm.frames[3], this.flange);
     const T = tool.mount.body.T;
-    const off = tool.toolName === 'hotend' ? this.spec.tools.hotend.tipOffset : this.spec.tools.spindle.tipOffset;
+    const off = this.spec.tools[tool.toolName].tipOffset;
     return tfApply(T, [off, 0, 0]);
   }
   // Where the firmware believes the tip is (nominal geometry, its step counts).
@@ -257,6 +258,7 @@ export const SCHEDULE = [
   {
     stage: 'process', every: 40, ops: [
       ['heldForces', 'clear'], ['deposition', 'update'], ['cutting', 'update'],
+      ['probeContact', 'update'], ['probes', 'update'],
       ['board', 'adcUpdate'], ['recorder', 'sample'],
     ],
   },
@@ -299,8 +301,10 @@ export function firmwareConfig(spec) {
     rapid: 2400,
     changeFeed: 2400,
     rack: spec.rack,
-    toolOrder: ['hotend', 'spindle'],
-    tipOffset: { hotend: spec.tools.hotend.tipOffset, spindle: spec.tools.spindle.tipOffset },
+    toolOrder: ['hotend', 'spindle', 'probe'],
+    tipOffset: { hotend: spec.tools.hotend.tipOffset, spindle: spec.tools.spindle.tipOffset, probe: spec.tools.probe.tipOffset },
+    doorPin: PINS.door, probePin: PINS.probe,
+    fan: { pin: PINS.fan, pwmHz: 100 },
     heaters: {
       hotend: { pin: PINS.hotend, adc: 'TH0', tool: 'hotend', pid: { kp: 0.08, ki: 0.006, kd: 0.3 }, band: 12, iMax: 120, max: 285, pwmHz: 10, runawayTime: 40 },
       bed: { pin: PINS.bed, adc: 'TH1', tool: null, pid: { kp: 0.35, ki: 0.004, kd: 1.5 }, band: 6, iMax: 200, max: 120, pwmHz: 5, runawayTime: 120 },
@@ -341,6 +345,9 @@ export class Recorder {
     add('spindle speed', 'rpm', () => m.spindle.omega * 60 / (2 * Math.PI));
     add('spindle current', 'A', () => m.spindle.armature.i);
     add('cutting power', 'W', () => m.cutting.Pf);
+    add('chamber air', 'C', () => m.enclosure.T - 273.15);
+    add('exhaust fan', '%', () => 100 * m.enclosure.fanSpeed);
+    add('probe stylus', 'mm', () => Math.max(-1, m.probe.stylus.contact * 1e3));
   }
   add(name, unit, fn) {
     this.channels.set(name, { unit, fn, data: new Float32Array(this.n) });

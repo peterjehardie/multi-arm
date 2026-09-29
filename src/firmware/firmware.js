@@ -75,6 +75,18 @@ export class Firmware {
     this.enable(!!c.holdAtBoot);
     for (const h of Object.values(this.heaters)) { m.pinMode(h.pin, 'out'); m.write(h.pin, false); }
     m.pinMode(c.spindle.pin, 'out'); m.write(c.spindle.pin, false);
+    // Enclosure door switch (closed = door shut, reads low) and touch probe
+    // (closes on contact, reads low). Both use the MCU's internal pull-ups.
+    if (c.doorPin) {
+      m.pinMode(c.doorPin, 'in_pullup');
+      m.onChange(c.doorPin, (level) => { this.doorOpen = level; this.msg(level ? 'door opened' : 'door closed'); });
+    }
+    if (c.probePin) {
+      m.pinMode(c.probePin, 'in_pullup');
+      m.onChange(c.probePin, (level) => { if (!level && this.probing) this.probeHit = true; });
+    }
+    if (c.fan) m.pwm(c.fan.pin, c.fan.pwmHz, 0);
+    this.fanDuty = 0;
     m.pwm(c.servo.pin, 50, c.servo.unlockUs * 50e-6);
     m.onUsbLine((line) => this.onLine(line));
     // Timer compare values advance by exactly one period, so ticks do not drift.
@@ -125,9 +137,17 @@ export class Firmware {
   }
 
   // ------------------------------------------------------ 1 kHz servo tick
+  // Door interlock: with the door open the spindle may not run, and a job
+  // that uses it holds before its next command until the door is shut.
+  interlocked() {
+    return this.doorOpen && (this.spindle.target > 0 || this.tool === 'spindle');
+  }
+
   tick(t) {
     let guard = 0;
-    while (!this.current && this.queue.length && guard++ < 20) this.start(this.queue.shift(), t);
+    if (this.interlocked()) {
+      if (!this.current) this.activity = 'Door open: spindle stopped, waiting for the door to be shut';
+    } else while (!this.current && this.queue.length && guard++ < 20) this.start(this.queue.shift(), t);
     while (this.okOwed > 0 && this.queue.length < BUFFER_LINES) { this.okOwed--; this.mcu.usbWrite('ok'); }
     let cur = this.current;
     if (cur) {
@@ -150,7 +170,7 @@ export class Firmware {
 
   // What the machine is doing, in words, for displays.
   describe(cmd, args) {
-    const names = { hotend: 'hot end', spindle: 'spindle' };
+    const names = { hotend: 'hot end', spindle: 'spindle', probe: 'touch probe' };
     switch (cmd) {
       case 'G0': return 'Moving (travel)';
       case 'G1':
@@ -163,6 +183,8 @@ export class Firmware {
       case 'M3': return 'Spinning up the spindle';
       case 'M5': return 'Stopping the spindle';
       case 'M6': return `Changing tool to the ${names[this.cfg.toolOrder[args.T ?? 0]] ?? 'tool'}`;
+      case 'G38.2': return 'Probing: moving until the stylus touches';
+      case 'M106': return 'Exhaust fan on';
       case 'M620': return 'Turning the plate into position (polar mode)';
       default: return null;
     }
@@ -177,6 +199,9 @@ export class Firmware {
     if (cmd !== 'G0' && cmd !== 'G1') { this.vCarry = 0; this.tCarry = null; }
     switch (cmd) {
       case 'G0': case 'G1': if (need(this.homed)) this.startLinear(args, cmd === 'G0', t); break;
+      // Probe: move toward the target until the probe triggers, then stop and
+      // report where the tip was. Reports "PRB:x,y,z:1" (mm, work frame).
+      case 'G38.2': if (need(this.homed)) this.startProbe(args, t); break;
       case 'G4': {
         const dur = (args.P ?? 0) / 1000 + (args.S ?? 0);
         const tEnd = t + dur;
@@ -200,7 +225,9 @@ export class Firmware {
       case 'M6': if (need(this.homed)) this.toolChange(args.T ?? 0, t); break;
       case 'M114': this.msg(this.positionReport()); break;
       case 'M400': break;
-      case 'M106': case 'M107': break;
+      // Exhaust fan of the enclosure (S0-255).
+      case 'M106': this.fanDuty = Math.max(0, Math.min(1, (args.S ?? 255) / 255)); break;
+      case 'M107': this.fanDuty = 0; break;
       // Polar mode: the plate turns so every point is worked on the side
       // facing the arm. The arm then moves only in its own vertical plane.
       case 'M620': if (need(this.homed)) this.setPolar(true, t); break;
@@ -326,7 +353,24 @@ export class Firmware {
     return this.solve([p.x, p.y, p.z], c, p.a ?? 0, 0);
   }
 
-  startLinear(args, rapid, t) {
+  startProbe(args, t) {
+    this.probing = true;
+    this.probeHit = !this.mcu.read(this.cfg.probePin); // already touching?
+    if (this.probeHit) { this.finishProbe(true); return; }
+    this.startLinear(args, false, t, {
+      abort: () => this.probeHit,
+      onEnd: (aborted) => this.finishProbe(aborted),
+    });
+  }
+  finishProbe(hit) {
+    this.probing = false;
+    this.syncPosFromJoints();
+    const p = this.pos, f = (v) => (v * 1000).toFixed(3);
+    this.lastProbe = hit ? [p.x, p.y, p.z] : null;
+    this.msg(hit ? `PRB:${f(p.x)},${f(p.y)},${f(p.z)}:1` : 'error: probe did not trigger before the end of the move');
+  }
+
+  startLinear(args, rapid, t, probeOpts = null) {
     const p0 = { ...this.pos };
     const p1 = this.targetOf(args, p0);
     if (args.F !== undefined) this.feed = args.F;
@@ -365,6 +409,7 @@ export class Firmware {
     this.pos = p1;
     const vmax = F / 60 / 1000;
     const vEnd = L > 1e-6 && args.C === undefined && args.A === undefined ? this.junctionSpeed(p0, p1, vmax, rapid) : 0;
+    if (probeOpts) { this.runMove(eval_, len, vmax, this.cfg.accel, t, null, 0, probeOpts); return; }
     this.runMove(eval_, len, vmax, this.cfg.accel, t, null, vEnd);
   }
 
@@ -398,7 +443,7 @@ export class Firmware {
 
   // Trapezoidal velocity profile along a path parameter s in [0,1], starting
   // at the speed the previous move handed over and ending at vEnd (m/s).
-  runMove(eval_, len, vmax, amax, t, onDone, vEnd = 0) {
+  runMove(eval_, len, vmax, amax, t, onDone, vEnd = 0, probeOpts = null) {
     if (!this.enabled) this.enable(true);
     const v0m = this.vCarry ?? 0;
     const tCarry = this.tCarry;
@@ -448,11 +493,14 @@ export class Firmware {
     this.stats.moves++;
     this.current = {
       update: (tt) => {
+        // A probing move stops the moment the probe triggers.
+        if (probeOpts?.abort()) { probeOpts.onEnd(true); return true; }
         const s = sAt(tt + TICK - t0);
         const chaining = tt + TICK - t0 >= T && v1 > 0;
         const q = chaining ? null : eval_(s);
         if (q) this.stepTo(q, tt);
         if (tt + TICK - t0 >= T) {
+          if (probeOpts) { probeOpts.onEnd(false); return true; }
           onDone?.();
           if (v1 > 0) {
             this.vCarry = v1 * len; this.tCarry = t0 + T;
@@ -637,7 +685,10 @@ export class Firmware {
     sp.duty += Math.max(-0.2, Math.min(0.08, goal - sp.duty));
     if (sp.duty < 0.02 && goal === 0) sp.duty = 0;
     if (this.tool !== 'spindle') sp.duty = 0;
+    if (this.interlocked()) sp.duty = 0;
     this.mcu.pwm(this.cfg.spindle.pin, this.cfg.spindle.pwmHz, sp.duty);
+    // The exhaust fan runs as commanded, and always while the spindle cuts.
+    if (this.cfg.fan) this.mcu.pwm(this.cfg.fan.pin, this.cfg.fan.pwmHz, Math.max(this.fanDuty, sp.duty > 0 ? 1 : 0));
   }
   setSpindle(rpm, t) {
     this.spindle.target = Math.max(0, Math.min(this.cfg.spindle.maxRpm, rpm));

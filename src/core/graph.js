@@ -33,15 +33,16 @@ export const DOMAINS = {
 //          this step (accumulated by connections), loadTau [N m] a load the
 //          owner reports for a kinematic link (gear mesh output)
 //   therm: T [K], q [W] heat flowing into the owner this step
-//   mat:   omega [rad/s] of a cutter, tauLoad [N m] cutting torque on it
+//   mat:   omega [rad/s] of a cutter, tauLoad [N m] cutting torque on it,
+//          contact [m] how far a stylus is pushed into the surface
 //   elec:  none; voltages live in the supply network, currents in loops
 export const PORT_FIELDS = {
   elec: [],
   rot: ['theta', 'omega', 'tau', 'loadTau'],
   therm: ['T', 'q'],
-  mat: ['omega', 'tauLoad'],
+  mat: ['omega', 'tauLoad', 'contact'],
 };
-const PORT_INIT = { theta: 0, omega: 0, tau: 0, loadTau: 0, T: AMBIENT, q: 0, tauLoad: 0 };
+const PORT_INIT = { theta: 0, omega: 0, tau: 0, loadTau: 0, T: AMBIENT, q: 0, tauLoad: 0, contact: -1 };
 
 export class Body {
   // A rigid body with a world pose. Owners (arm model, turntable) update T.

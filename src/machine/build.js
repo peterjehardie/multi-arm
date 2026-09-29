@@ -11,6 +11,8 @@ import { PowerSupply, BuckConverter, TerminalBlock } from '../electrical/power.j
 import { StepperMotor, StepperDriver } from '../electrical/stepper.js';
 import { Heater, Thermistor, MosfetModule, BrushedDCMotor, Servo, LimitSwitch } from '../electrical/devices.js';
 import { ThermalMass, Ambient, ThermalContact } from '../thermal/thermal.js';
+import { Enclosure, EnclosureWall } from '../thermal/enclosure.js';
+import { ProbeSwitch, ProbeContact } from '../process/probe.js';
 import { ArmModel } from '../mechanical/arm.js';
 import { Gearbox, SensorCoupling, Turntable } from '../mechanical/transmission.js';
 import { ChangerMaster, ToolPlate, MatingContact } from '../mechanical/toolchanger.js';
@@ -31,6 +33,7 @@ export const PINS = {
   e: { step: 'GP10', dir: 'GP11' },
   en: 'GP12',
   hotend: 'GP13', bed: 'GP14', spindle: 'GP15', servo: 'GP21',
+  door: 'GP22', probe: 'GP23', fan: 'GP24',
 };
 
 // Slip ring: stator brushes on the fixed frame, rotor rings turning with the plate.
@@ -109,6 +112,7 @@ export function buildMachine(sim, spec = SPEC) {
     hotend: A.add(new MosfetModule('fet_hotend', { mount: at(-0.40, -0.04), label: 'MOSFET hot end' })),
     bed: A.add(new MosfetModule('fet_bed', { mount: at(-0.40, -0.09), label: 'MOSFET bed' })),
     spindle: A.add(new MosfetModule('fet_spindle', { mount: at(-0.40, -0.14), label: 'MOSFET spindle', flyback: true })),
+    fan: A.add(new MosfetModule('fet_fan', { mount: at(-0.40, -0.19), label: 'MOSFET exhaust fan', flyback: true })),
   };
   for (const f of Object.values(fets)) f.port('SGND').required = false;
 
@@ -148,7 +152,7 @@ export function buildMachine(sim, spec = SPEC) {
 
   // MOSFET modules: power and gate signal.
   for (const [n, f] of Object.entries(fets)) {
-    const bar = n === 'bed' ? ['P4', 'N4'] : ['P5', 'N5'];
+    const bar = n === 'bed' ? ['P4', 'N4'] : n === 'fan' ? ['P6', 'N6'] : ['P5', 'N5'];
     wire(`tb24.${bar[0]}`, `${f.id}.VIN+`, { awg: n === 'bed' ? 16 : 18, color: RED, id: `${n}-VIN+` });
     wire(`tb24.${bar[1]}`, `${f.id}.VIN-`, { awg: n === 'bed' ? 16 : 18, color: BLK, id: `${n}-VIN-` });
     wire(`board.${PINS[n]}`, `${f.id}.SIG`, { awg: 26, color: PUR, id: `${n}-SIG` });
@@ -224,7 +228,7 @@ export function buildMachine(sim, spec = SPEC) {
   }
 
   // ------------------------------------------------------------ build plate
-  const workpiece = A.add(new Workpiece('workpiece', { body: tableBody, size: spec.table.workSize, cell: spec.table.cell }));
+  const workpiece = A.add(new Workpiece('workpiece', { body: tableBody, size: spec.table.workSize, cell: spec.table.cell, plateRadius: spec.table.radius }));
   const bedPlate = A.add(new ThermalMass('bed_plate', { C: 470, mount: { body: tableBody, p: [0, 0, -0.003] }, faces: ['heater', 'air', 'probe'], label: 'Aluminium bed plate' }));
   bedPlate.size = [0.18, 0.18, 0.006]; bedPlate.round = spec.table.radius;
   const bedHeater = A.add(new Heater('bed_heater', { R0: 4.6, C: 20, mount: { body: tableBody, p: [0, 0, -0.007] }, label: 'Silicone bed heater 125 W' }));
@@ -243,7 +247,7 @@ export function buildMachine(sim, spec = SPEC) {
   wire('slip.R4', 'bed_therm.b', { awg: 26, color: WHT, route: rotorRoute });
 
   // ------------------------------------------------------------ wrist: tool changer + latch servo
-  const master = A.add(new ChangerMaster('changer', { pins: 10, flange, mount: { body: link4, p: flange }, label: 'Tool changer (arm side)' }));
+  const master = A.add(new ChangerMaster('changer', { pins: 12, flange, mount: { body: link4, p: flange }, label: 'Tool changer (arm side)' }));
   master.mass = 0.07;
   const servo = A.add(new Servo('servo', { mount: { body: link4, p: [truth.L4 * 0.5, 0.03, 0.0] }, label: 'Latch servo' }));
   servo.mass = 0.013;
@@ -261,6 +265,8 @@ export function buildMachine(sim, spec = SPEC) {
     wire(`drv_e.${ph}`, `changer.P${5 + k}`, { awg: 22, color: phaseColors[k], route: wrist, id: `e-${ph}` }));
   wire('fet_spindle.OUT+', 'changer.P9', { awg: 18, color: RED, route: wrist, id: 'spindle+' });
   wire('fet_spindle.OUT-', 'changer.P10', { awg: 18, color: BLK, route: wrist, id: 'spindle-' });
+  wire(`board.${PINS.probe}`, 'changer.P11', { awg: 26, color: '#16a085', route: wrist, id: 'probe' });
+  wire('board.GND15', 'changer.P12', { awg: 26, color: BLK, route: wrist, id: 'probeG' });
 
   // ------------------------------------------------------------ tools
   const holderT = (H) => {
@@ -275,7 +281,7 @@ export function buildMachine(sim, spec = SPEC) {
 
   // Hot end tool.
   const hotBody = A.body('tool_hotend', holderT(spec.rack.hotend));
-  const hotPlate = A.add(new ToolPlate('plate_hotend', { pins: 10, toolName: 'hotend', holder: holderT(spec.rack.hotend), mount: { body: hotBody, p: [0, 0, 0] }, label: 'Hot end tool plate' }));
+  const hotPlate = A.add(new ToolPlate('plate_hotend', { pins: 12, toolName: 'hotend', holder: holderT(spec.rack.hotend), mount: { body: hotBody, p: [0, 0, 0] }, label: 'Hot end tool plate' }));
   hotPlate.mass = 0.03;
   const tip = spec.tools.hotend.tipOffset;
   const extruder = A.add(new Extruder('extruder', { mount: { body: hotBody, p: [0.022, 0, 0.022] }, nozzleAt: [tip - 0.022, 0, -0.022], label: 'Direct-drive extruder' }));
@@ -290,7 +296,7 @@ export function buildMachine(sim, spec = SPEC) {
   A.connect(new ThermalContact('tc_cartridge', hotHeater.port('surface'), block.port('heater'), { G: 0.8 }));
   A.connect(new ThermalContact('tc_hot_probe', block.port('probe'), hotTherm.port('bead'), { G: 0.004 }));
   A.connect(new ThermalContact('tc_melt', block.port('melt'), extruder.port('melt'), { G: extruder.meltG }));
-  toAir(block.port('air'), 0.055, 'conv_block');
+  const blockAir = block.port('air');
   const pins = (pl, pairs) => {
     for (const [pin, target] of pairs)
       wire(`${pl}.${pin}`, target, { awg: 24, color: GRY, length: 0.06, id: `${pl}-${pin}` });
@@ -300,25 +306,46 @@ export function buildMachine(sim, spec = SPEC) {
 
   // Spindle tool.
   const spBody = A.body('tool_spindle', holderT(spec.rack.spindle));
-  const spPlate = A.add(new ToolPlate('plate_spindle', { pins: 10, toolName: 'spindle', holder: holderT(spec.rack.spindle), mount: { body: spBody, p: [0, 0, 0] }, label: 'Spindle tool plate' }));
+  const spPlate = A.add(new ToolPlate('plate_spindle', { pins: 12, toolName: 'spindle', holder: holderT(spec.rack.spindle), mount: { body: spBody, p: [0, 0, 0] }, label: 'Spindle tool plate' }));
   spPlate.mass = 0.03;
   const spTip = spec.tools.spindle.tipOffset;
   const spindle = A.add(new BrushedDCMotor('spindle', SPINDLE_MOTOR, { mount: { body: spBody, p: [0.045, 0, 0] }, bitAt: [spTip - 0.045, 0, 0], label: '775 spindle + 1/8" ball-nose end mill' }));
   spindle.mass = 0.45; spindle.size = [0.09, 0.045, 0.045];
   pins('plate_spindle', [['P9', 'spindle.M+'], ['P10', 'spindle.M-']]);
 
+  // Touch probe tool.
+  const prBody = A.body('tool_probe', holderT(spec.rack.probe));
+  const prPlate = A.add(new ToolPlate('plate_probe', { pins: 12, toolName: 'probe', holder: holderT(spec.rack.probe), mount: { body: prBody, p: [0, 0, 0] }, label: 'Touch probe tool plate' }));
+  prPlate.mass = 0.03;
+  const prTip = spec.tools.probe.tipOffset;
+  const probe = A.add(new ProbeSwitch('probe', { pretravel: spec.tools.probe.pretravel, mount: { body: prBody, p: [0.025, 0, 0] }, stylusAt: [prTip - 0.025, 0, 0], label: 'Touch probe (kinematic seat)' }));
+  probe.mass = 0.05;
+  pins('plate_probe', [['P11', 'probe.COM'], ['P12', 'probe.NO']]);
+
   // Pogo contacts between the flange and each tool plate.
-  for (const pl of [hotPlate, spPlate])
-    for (let i = 1; i <= 10; i++)
+  for (const pl of [hotPlate, spPlate, prPlate])
+    for (let i = 1; i <= 12; i++)
       A.connect(new MatingContact(`pogo_${pl.toolName}_${i}`, master.port(`P${i}`), pl.port(`P${i}`), { ratedA: 5 }));
+
+  // ------------------------------------------------------------ enclosure
+  const enc = A.add(new Enclosure('enclosure', { body: world, box: spec.enclosure.box, glands: spec.enclosure.glands, label: 'Enclosure (acrylic, door, exhaust fan)' }));
+  const encFaces = [];
+  const toChamber = (port, G, id) => A.connect(new ThermalContact(id, port, enc.port(`air${encFaces.push(id) - 1}`), { G, kind: 'convection' }));
+  A.connect(new EnclosureWall('enclosure_wall', enc.port('wall'), air.port(`air${airFace++}`), { G: 0, kind: 'convection' }));
+  wire('fet_fan.OUT+', 'enclosure.FAN+', { awg: 24, color: RED, route: [{ body: world, p: [-0.30, -0.22, 0.01] }, { body: world, p: [-0.10, 0.20, 0.17] }], id: 'fan+' });
+  wire('fet_fan.OUT-', 'enclosure.FAN-', { awg: 24, color: BLK, route: [{ body: world, p: [-0.30, -0.22, 0.01] }, { body: world, p: [-0.10, 0.20, 0.16] }], id: 'fan-' });
+  wire(`board.${PINS.door}`, 'enclosure.DOOR_COM', { awg: 26, color: '#d35400', route: [{ body: world, p: [-0.12, -0.30, 0.01] }, { body: world, p: [0.42, -0.30, 0.01] }], id: 'door' });
+  wire('board.GND14', 'enclosure.DOOR_NO', { awg: 26, color: BLK, route: [{ body: world, p: [-0.12, -0.30, 0.01] }, { body: world, p: [0.42, -0.30, 0.01] }], id: 'doorG' });
 
   // Bed thermal network.
   A.connect(new ThermalContact('tc_bed_pad', bedHeater.port('surface'), bedPlate.port('heater'), { G: 30 }));
   A.connect(new ThermalContact('tc_bed_probe', bedPlate.port('probe'), bedTherm.port('bead'), { G: 0.006 }));
-  toAir(bedPlate.port('air'), 0.55, 'conv_bed');
+  toChamber(bedPlate.port('air'), 0.55, 'conv_bed');
 
   // Process contacts.
   const deposition = A.connect(new DepositionContact('deposition', extruder.port('nozzle'), workpiece.port('surface')));
+  toChamber(blockAir, 0.055, 'conv_block');
+  const probeContact = A.connect(new ProbeContact('probe_contact', probe.port('stylus'), workpiece.port('surface')));
   const cutting = A.connect(new CuttingContact('cutting', spindle.port('bit'), workpiece.port('surface'), {
     radius: spec.tools.spindle.cutterRadius, flutes: spec.tools.spindle.flutes, shape: spec.tools.spindle.cutter,
   }));
@@ -329,6 +356,7 @@ export function buildMachine(sim, spec = SPEC) {
   return {
     A, sim, rng, log, note, truth, arm, table, psu, buck, board, host, drivers, motors, gearboxes, switches, fets,
     workpiece, bedPlate, bedHeater, bedTherm, block, hotHeater, hotTherm, extruder, emot, spindle, servo,
-    master, plates: [hotPlate, spPlate], deposition, cutting, air, slip, flange, spec,
+    master, plates: [hotPlate, spPlate, prPlate], deposition, cutting, air, slip, flange, spec,
+    enclosure: enc, probe, probeContact,
   };
 }

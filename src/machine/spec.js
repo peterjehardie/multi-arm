@@ -34,11 +34,22 @@ export const SPEC = {
   rack: {
     hotend: [0.06, -0.26, 0.20],
     spindle: [0.06, 0.26, 0.20],
+    probe: [0.06, 0.18, 0.20],
+  },
+
+  // --- enclosure (world, metres): acrylic box with a door on the +x side -------
+  // The electronics bay stays outside (cooler, reachable); cables enter
+  // through glands in the back wall.
+  enclosure: {
+    box: { min: [-0.09, -0.34, 0], max: [0.42, 0.34, 0.56] },
+    glands: [[-0.09, 0.0, 0.015], [-0.09, -0.12, 0.015]],
   },
   tools: {
     hotend: { tipOffset: 0.058, mass: 0.1 },
     // 1/8" (3.175 mm) two-flute ball-nosed end mill: can rough and finish curved surfaces.
     spindle: { tipOffset: 0.092, cutterRadius: 1.5875e-3, flutes: 2, cutter: 'ball' },
+    // Touch probe: 2 mm ruby ball on a 40 mm stylus, closes on 0.04 mm of travel.
+    probe: { tipOffset: 0.075, pretravel: 0.04e-3 },
   },
 
   // --- drives -----------------------------------------------------------------
