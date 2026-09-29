@@ -35,14 +35,18 @@ const MODE_TEXT = {
   full: '<b>Full physics:</b> every coil current, gearbox, wire and heat flow is simulated. Slower, closest to the real build.',
 };
 let simMode = storageGet('multiarm.mode') === 'full' ? 'full' : 'demo';
-let theme = ['light', 'dark'].includes(storageGet('multiarm.theme')) ? storageGet('multiarm.theme') : 'auto';
+// Themes: follow the system (light or dark), or pick light, mid (Blender's
+// default interface greys) or dark.
+const THEMES = ['auto', 'light', 'mid', 'dark'];
+const THEME_NAME = { auto: 'follows your system', light: 'light', mid: 'mid grey (Blender-style)', dark: 'dark' };
+let theme = THEMES.includes(storageGet('multiarm.theme')) ? storageGet('multiarm.theme') : 'auto';
 
 function applyThemeAttr() {
   if (theme === 'auto') document.documentElement.removeAttribute('data-theme');
   else document.documentElement.setAttribute('data-theme', theme);
   const b = $('btnTheme');
-  b.innerHTML = icon(theme === 'auto' ? 'auto' : theme === 'light' ? 'sun' : 'moon');
-  b.title = `Colour theme: ${theme === 'auto' ? 'follows your system' : theme} (click to change)`;
+  b.innerHTML = icon({ auto: 'auto', light: 'sun', mid: 'mid', dark: 'moon' }[theme]);
+  b.title = `Colour theme: ${THEME_NAME[theme]} (click to change)`;
   b.setAttribute('aria-label', b.title);
 }
 applyThemeAttr();
@@ -80,8 +84,8 @@ function applyTheme() {
   const bg = css.getPropertyValue('--scene-bg').trim() || '#11151b';
   scene.background = new THREE.Color(bg);
   const light = isLight();
-  benchMat.color.set(light ? '#c5ccd4' : '#1b2027');
-  grid.material.color.set(light ? '#aab3bd' : '#2a323d');
+  benchMat.color.set(light ? '#d8d5ca' : theme === 'mid' ? '#303030' : '#1f1e1d');
+  grid.material.color.set(light ? '#c2c0b6' : theme === 'mid' ? '#545454' : '#3e3e3a');
 }
 // Bench.
 const benchMat = new THREE.MeshStandardMaterial({ color: '#1b2027', roughness: 0.95 });
@@ -339,7 +343,7 @@ function resetMachine() {
   defaultHint();
 }
 $('btnTheme').addEventListener('click', () => {
-  theme = theme === 'auto' ? (isLight() ? 'dark' : 'light') : theme === 'dark' ? 'light' : 'auto';
+  theme = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
   storageSet('multiarm.theme', theme);
   applyThemeAttr();
   applyTheme();

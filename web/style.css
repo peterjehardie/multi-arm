@@ -1,116 +1,153 @@
-/* Multi-arm workshop viewer. Tokens first (light, then dark), then layout,
-   then components. No external fonts: system stacks only. */
+/* Multi-arm workshop viewer. Claude styling in three themes: light, dark, and
+   a middle value on Blender's default interface greys. Tokens first, then
+   layout, then components. No external fonts: system stacks only. */
 
 :root {
-  --bg: #eceff3;
-  --surface: #ffffff;
-  --surface-2: #f5f7f9;
-  --surface-3: #e9edf1;
-  --border: #d6dce3;
-  --border-strong: #b9c2cc;
-  --text: #17202a;
-  --text-2: #3e4a57;
-  --muted: #5f6b79;
-  --accent: #00758a;
-  --accent-hover: #00606f;
-  --accent-soft: #dff1f4;
+  --bg: #f0eee6;
+  --surface: #faf9f5;
+  --surface-2: #f5f4ed;
+  --surface-3: #e8e6dc;
+  --border: #deddd2;
+  --border-strong: #c2c0b6;
+  --text: #141413;
+  --text-2: #3d3d3a;
+  --muted: #6b6a64;
+  --accent: #c96442;
+  --accent-hover: #b0552f;
+  --accent-soft: #f6e4da;
   --on-accent: #ffffff;
-  --accent-2: #b35f00;
-  --on-accent-2: #ffffff;
-  --ok: #17804f;
-  --ok-soft: #e1f3ea;
-  --warn: #9a6500;
-  --warn-soft: #fbf0d9;
-  --bad: #c0392b;
-  --bad-soft: #fbe5e2;
-  --scene-bg: #dde3e9;
-  --glass: rgba(255, 255, 255, 0.86);
-  --scope-bg: #fbfcfd;
-  --scope-grid: #e3e8ee;
-  --ch1: #0077b6;
-  --ch2: #d6336c;
-  --ch3: #b07d00;
-  --ch4: #138a63;
-  --shadow: 0 1px 2px rgba(16, 24, 32, .06), 0 4px 16px rgba(16, 24, 32, .08);
-  --shadow-lg: 0 10px 40px rgba(16, 24, 32, .22);
+  --accent-2: #3d3d3a;
+  --on-accent-2: #faf9f5;
+  --ok: #3f7d4e;
+  --ok-soft: #e3eedf;
+  --warn: #8f6200;
+  --warn-soft: #f6ecd4;
+  --bad: #b3372b;
+  --bad-soft: #f7e0db;
+  --scene-bg: #e8e6dc;
+  --glass: rgba(250, 249, 245, 0.88);
+  --scope-bg: #faf9f5;
+  --scope-grid: #e8e6dc;
+  --ch1: #2a78d6;
+  --ch2: #eb6834;
+  --ch3: #1baf7a;
+  --ch4: #eda100;
+  --shadow: 0 1px 2px rgba(20, 20, 19, .06), 0 4px 16px rgba(20, 20, 19, .07);
+  --shadow-lg: 0 10px 40px rgba(20, 20, 19, .2);
   --focus: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent);
+  color-scheme: light;
 
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --serif: ui-serif, "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
   --fs-xs: 11px; --fs-sm: 12px; --fs-md: 13px; --fs-lg: 15px; --fs-xl: 18px;
   --r-sm: 6px; --r-md: 8px; --r-lg: 12px;
   --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px;
   --rail-w: 280px; --panel-w: 380px;
-  color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #0c0f13;
-    --surface: #13181e;
-    --surface-2: #1a2028;
-    --surface-3: #222a34;
-    --border: #28313c;
-    --border-strong: #3a4552;
-    --text: #e2e7ed;
-    --text-2: #bcc5cf;
-    --muted: #8a96a4;
-    --accent: #2cc4dd;
-    --accent-hover: #5fd6ea;
-    --accent-soft: #0f3139;
-    --on-accent: #041a1f;
-    --accent-2: #ffa94d;
-    --on-accent-2: #1b1000;
-    --ok: #4ade9a;
-    --ok-soft: #10301f;
-    --warn: #f5c35b;
-    --warn-soft: #33290f;
-    --bad: #ff7b72;
-    --bad-soft: #3a1714;
-    --scene-bg: #10151b;
-    --glass: rgba(19, 24, 30, 0.84);
-    --scope-bg: #0a0d11;
-    --scope-grid: #1c232d;
-    --ch1: #4cc9f0;
-    --ch2: #ff5d8f;
-    --ch3: #ffd166;
-    --ch4: #06d6a0;
+  :root:not([data-theme="light"]):not([data-theme="mid"]) {
+    --bg: #1f1e1d;
+    --surface: #262624;
+    --surface-2: #30302e;
+    --surface-3: #3a3a37;
+    --border: #3e3e3a;
+    --border-strong: #56554f;
+    --text: #faf9f5;
+    --text-2: #c2c0b6;
+    --muted: #9c9a92;
+    --accent: #d97757;
+    --accent-hover: #e38d70;
+    --accent-soft: #3d2a22;
+    --on-accent: #141413;
+    --accent-2: #e8e6dc;
+    --on-accent-2: #141413;
+    --ok: #7cc48b;
+    --ok-soft: #1f3324;
+    --warn: #e3b55a;
+    --warn-soft: #362c16;
+    --bad: #f0806f;
+    --bad-soft: #3d1f1a;
+    --scene-bg: #262624;
+    --glass: rgba(38, 38, 36, 0.88);
+    --scope-bg: #1f1e1d;
+    --scope-grid: #30302e;
+    --ch1: #3987e5;
+    --ch2: #d95926;
+    --ch3: #199e70;
+    --ch4: #c98500;
     --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 4px 16px rgba(0, 0, 0, .3);
     --shadow-lg: 0 10px 40px rgba(0, 0, 0, .55);
     color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
-  --bg: #0c0f13;
-  --surface: #13181e;
-  --surface-2: #1a2028;
-  --surface-3: #222a34;
-  --border: #28313c;
-  --border-strong: #3a4552;
-  --text: #e2e7ed;
-  --text-2: #bcc5cf;
-  --muted: #8a96a4;
-  --accent: #2cc4dd;
-  --accent-hover: #5fd6ea;
-  --accent-soft: #0f3139;
-  --on-accent: #041a1f;
-  --accent-2: #ffa94d;
-  --on-accent-2: #1b1000;
-  --ok: #4ade9a;
-  --ok-soft: #10301f;
-  --warn: #f5c35b;
-  --warn-soft: #33290f;
-  --bad: #ff7b72;
-  --bad-soft: #3a1714;
-  --scene-bg: #10151b;
-  --glass: rgba(19, 24, 30, 0.84);
-  --scope-bg: #0a0d11;
-  --scope-grid: #1c232d;
-  --ch1: #4cc9f0;
-  --ch2: #ff5d8f;
-  --ch3: #ffd166;
-  --ch4: #06d6a0;
+  --bg: #1f1e1d;
+  --surface: #262624;
+  --surface-2: #30302e;
+  --surface-3: #3a3a37;
+  --border: #3e3e3a;
+  --border-strong: #56554f;
+  --text: #faf9f5;
+  --text-2: #c2c0b6;
+  --muted: #9c9a92;
+  --accent: #d97757;
+  --accent-hover: #e38d70;
+  --accent-soft: #3d2a22;
+  --on-accent: #141413;
+  --accent-2: #e8e6dc;
+  --on-accent-2: #141413;
+  --ok: #7cc48b;
+  --ok-soft: #1f3324;
+  --warn: #e3b55a;
+  --warn-soft: #362c16;
+  --bad: #f0806f;
+  --bad-soft: #3d1f1a;
+  --scene-bg: #262624;
+  --glass: rgba(38, 38, 36, 0.88);
+  --scope-bg: #1f1e1d;
+  --scope-grid: #30302e;
+  --ch1: #3987e5;
+  --ch2: #d95926;
+  --ch3: #199e70;
+  --ch4: #c98500;
   --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 4px 16px rgba(0, 0, 0, .3);
   --shadow-lg: 0 10px 40px rgba(0, 0, 0, .55);
+  color-scheme: dark;
+}
+/* Middle value: the default Blender 4.2 interface greys (read from its theme). */
+:root[data-theme="mid"] {
+  --bg: #282828;
+  --surface: #303030;
+  --surface-2: #3d3d3d;
+  --surface-3: #545454;
+  --border: #1d1d1d;
+  --border-strong: #5e5e5e;
+  --text: #e6e6e6;
+  --text-2: #cfcfcf;
+  --muted: #a3a3a3;
+  --accent: #d97757;
+  --accent-hover: #e38d70;
+  --accent-soft: #4a3830;
+  --on-accent: #141413;
+  --accent-2: #e6e6e6;
+  --on-accent-2: #1d1d1d;
+  --ok: #7cc48b;
+  --ok-soft: #2e3d31;
+  --warn: #e3b55a;
+  --warn-soft: #443a24;
+  --bad: #f0806f;
+  --bad-soft: #4a2f2a;
+  --scene-bg: #3d3d3d;
+  --glass: rgba(48, 48, 48, 0.9);
+  --scope-bg: #282828;
+  --scope-grid: #3d3d3d;
+  --ch1: #3987e5;
+  --ch2: #d95926;
+  --ch3: #199e70;
+  --ch4: #c98500;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .25), 0 4px 16px rgba(0, 0, 0, .25);
+  --shadow-lg: 0 10px 40px rgba(0, 0, 0, .45);
   color-scheme: dark;
 }
 
@@ -124,6 +161,7 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 h1, h2, h3 { margin: 0; line-height: 1.25; }
+h1, h2 { font-family: var(--serif); font-weight: 600; }
 p { margin: 0; }
 code, kbd, .mono { font-family: var(--mono); font-size: var(--fs-sm); }
 .muted { color: var(--muted); }
@@ -185,7 +223,7 @@ button { cursor: pointer; }
 }
 .brand { display: flex; align-items: center; gap: 10px; margin-right: 4px; }
 .brand-text { display: flex; flex-direction: column; line-height: 1.1; }
-.brand-text b { font-size: var(--fs-lg); letter-spacing: .1px; }
+.brand-text b { font-family: var(--serif); font-size: 17px; font-weight: 600; letter-spacing: .1px; }
 .brand-sub { font-size: var(--fs-xs); color: var(--muted); }
 .logo { width: 22px; height: 22px; border-radius: 50%; border: 4px solid var(--accent); position: relative; flex: none; }
 .logo::after { content: ""; position: absolute; right: -9px; top: 3px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent-2); }

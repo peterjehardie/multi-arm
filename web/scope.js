@@ -6,7 +6,7 @@
 // the page; `names` are optional elements that show each channel's name.
 // Trace colours come from the CSS tokens --ch1..--ch4 (theme aware).
 
-export const SCOPE_COLORS = ['#4cc9f0', '#ff5d8f', '#ffd166', '#06d6a0'];
+export const SCOPE_COLORS = ['#3987e5', '#d95926', '#199e70', '#c98500'];
 
 export function scopeColors() {
   const css = getComputedStyle(document.documentElement);
