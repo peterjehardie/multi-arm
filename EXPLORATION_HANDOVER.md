@@ -105,3 +105,16 @@ The plate stall found in the first hybrid run is fixed in the firmware planner: 
   2. collision checks (tool bodies against plate, part and rack);
   3. a material model that can hold undercuts (tri-dexel);
   4. tilted-tool CAM, with side drilling as the first and simplest case.
+
+# Handover addendum: session 5 (2026-09-29)
+
+## State
+- `Machine({ mode: 'demo' })` exists next to full physics (`DEMO_SCHEDULE` in `machine/machine.js`). It keeps the same parts and wires. The ideal methods are `StepperDriver.updateIdeal`, `StepperMotor.followCurrent`, `Gearbox.follow`, `ArmModel.followPorts` and `Turntable.followPort`.
+- Enclosure, touch probe and a scripted operator (`M118 @door ...`). `scenarios/tour.gcode` is the feature tour.
+- Two sub-agents were given the viewer: one for the 3D scene and cable routes, one for navigation and UI. Their results are described in the session 5 conversation.
+
+## Where this was heading
+- **A middle mode.** Keep the ideal drives, but put back the gearbox compliance and the gravity load on a kinematic arm (a quasi-static sag). The demo would then show the machine's real errors at close to demo speed.
+- **Event cost.** Now the largest cost in demo mode. Step pulses could be batched per 1 ms firmware tick (count plus direction), while still going through the STEP wire as one logic net.
+- **Chamber realism.** Radiation from the bed and heated panels; a heater for the chamber if printing warping-prone materials becomes a goal.
+- **Probe uses.** Bed mesh, part location, and self-calibration of link lengths from many probe points: the route to closing the sim-to-real gap on geometry.

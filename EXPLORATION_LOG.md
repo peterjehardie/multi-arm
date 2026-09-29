@@ -98,3 +98,19 @@ All three jobs re-ran with the same results within grid differences. They now si
 - The new checks at once found three state values with no starting value (buck output voltage, a driver's logic-power flag, the servo's pulse timer) and a stray `inertia` field on the motor shaft port. All are fixed.
 - The state hash was identical before and after the refactor (60568afed06941a9 for the 3 s quick-start ring demo), so no physics changed.
 - The mounted part's inertia was briefly wired from the workpiece straight to the turntable. That was moved to the assembly level, because components must not reference each other.
+
+## Session 5 (2026-09-29)
+
+**Enclosure and touch probe.** Added an enclosure (chamber air as one thermal mass, a door switch wired to the controller, an exhaust fan behind a MOSFET) and a touch probe tool (T2). The firmware got a door interlock for the spindle, `G38.2` probing and `M106`/`M107`. With a 60 °C bed and nothing else heating it, the closed chamber warms by only about 2 K in 10 minutes: about 11 W from the bed against about 7 W/K of panels, with a time constant near 750 s. Radiation is not modelled.
+
+**Demo mode.** Profiling showed the 25 µs step costs most of the time; the ~14,000 events per second (step pulses, logic edges) are cheap in comparison. The first idea was to disable parts of the machine; it was dropped because it would break the anchor rule. Demo mode instead keeps every part, wire and step pulse and replaces the fast physics with ideal versions on a 1 ms step:
+- the driver sets the coil currents exactly;
+- the rotor follows the current vector;
+- the gearboxes are rigid;
+- the arm and plate follow kinematically.
+
+Result: about 20–25× real time headless instead of 2.2×. Once the steps are 40× fewer, the events dominate the cost. A 1 ms step was checked against the fastest remaining dynamics: the extruder melt relaxation (about 12 ms) and the spindle's electromechanical time constant (about 38 ms). Both are stable with explicit steps.
+
+**Operator actions.** The door cannot be opened from G-code; a person does it. Opening it when the PC sends the line was rejected: the PC runs up to 16 lines ahead of the firmware. The chosen route is `M118 @door open 4`: the firmware prints it when it executes that line, and a scripted operator on the PC side acts on the physical door.
+
+**Tour, full physics vs demo.** The same tour in full physics took 101 s of computing against 8.8 s in demo mode. In full physics the 1 mm pocket came out 2.0 mm deep, and the probe read the block 0.56 mm high and the plate 0.46 mm high. The cause is the arm sagging under the heavier spindle and the lighter probe, without homing (quick start). Demo mode has no sag: pocket 1.07 mm, block top 8.01 mm, plate 0.03 mm.

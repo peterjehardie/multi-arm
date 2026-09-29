@@ -13,8 +13,9 @@ The goal is a sim that is close enough to the real machine that working on it te
 Requires Node 18 or later. There is nothing to install.
 
 ```sh
-npm test                     # 29 physics, slicer, CAM and architecture checks (about 30 s)
+npm test                     # 34 physics, slicer, CAM and architecture checks (about 50 s)
 npm run demo                 # headless: home, heat, print a ring, change tool, mill a slot
+node src/headless/run.js scenarios/tour.gcode --preheated --quick --demo   # feature tour in ~10 s
 node src/headless/run.js scenarios/demo.gcode --preheated   # skip the heat-up
 node src/headless/run.js scenarios/mill-wax.gcode --stock wax  # pocket a wax block
 node src/headless/run.js scenarios/knob-hybrid.gcode --preheated # print a knob, finish its dome
@@ -54,6 +55,20 @@ Two kinds of time run together, as in real mixed-signal hardware:
 | 1 ms | Deposition and cutting, ADC filters, the data recorder |
 | 10 ms | Heat flow, wire and motor heating |
 
+### Two modes: full physics and demo
+`new Machine({ mode: 'demo' })` (headless: `--demo`) keeps every part, wire, logic edge and line of firmware, and swaps the expensive fast physics for ideal versions on a 1 ms step:
+- each stepper driver puts exactly its sine-table current into the coils (no rise time, no back-EMF limit);
+- each rotor sits where that current points it (no load angle, so no stall or lost steps);
+- gearboxes are rigid (no wind-up, no backlash);
+- the arm and the plate follow their gearboxes without dynamics (no inertia, no gravity sag).
+
+Heat, extrusion, deposition, cutting, tool changes, probing and the enclosure run as in full mode. Demo mode runs at about 20–25× real time headless, against about 2.2× for full physics. It is for showing what the machine can do, not for tuning it: the full tour mills a 1 mm pocket 2.0 mm deep because the arm sags under the spindle, while demo mode cuts it 1.07 mm deep. The probe measures both.
+
+### Enclosure, probe and operator
+- **Enclosure** (`thermal/enclosure.js`): acrylic panels on a frame. The chamber air and the inner layer of the panels form one thermal mass, warmed by the bed and hot end and cooled through the panels, the exhaust fan and an open door. The fan is a 24 V motor switched by a MOSFET. The door switch is wired to the controller, and the firmware will not run the spindle while the door is open.
+- **Touch probe** (`process/probe.js`, tool T2): a stylus on a spring-loaded seat. Its contact closes after 0.04 mm of travel and is wired through the tool changer's pogo pins. `G38.2` moves until it triggers and reports `PRB:x,y,z:1`.
+- **Operator** (`machine/operator.js`): the person at the machine. A job can ask for an action with `M118 @door open 4` (open the door, shut it after 4 s). The firmware prints the line when it reaches it, and the operator acts on the physical door.
+
 ### What each domain models
 
 | Domain | Plain description | Where |
@@ -89,6 +104,9 @@ A job starts from a 3D model (an STL triangle mesh) and becomes G-code for the f
 - `M104` / `M109` hot end temperature (set / set and wait), `M140` / `M190` bed temperature.
 - `M3 S<rpm>` / `M5` spindle on / off, `M6 T0|T1` tool change (hot end / spindle), `M114` report position.
 - `M620` / `M621` polar mode on / off.
+- `M6 T2` touch probe; `G38.2 Z<target> F<feed>` probe toward a target.
+- `M106 S<0-255>` / `M107` exhaust fan; `M118 <text>` message to the host (a caption in the viewer); `M118 @door open <s>` operator action.
+- `scenarios/tour.gcode` (from `tools/gen-tour.js`) uses all of them: fan, polar printing, door interlock, milling, probing.
 
 ## Architecture: layers and seams
 
@@ -122,7 +140,7 @@ src/process     workpiece height map, extruder, deposition and cutting contacts
 src/cam         meshes and STL, slicer, CAM (drop cutter), demo models, job directives
 src/mcu         controller board, MCU peripherals, USB cable, host PC
 src/firmware    firmware and nominal kinematics
-src/machine     spec (the drawings), build (the wiring diagram), machine (step order, recorder)
+src/machine     spec (the drawings), build (the wiring diagram), machine (step orders, recorder), operator
 src/headless    command-line runner
 web/            browser viewer: app (loop, controls), view3d (scene), inspector, scope, docs (plain-language notes); three.js vendored
 tools/          serve.js (local static server), gen-demo.js (writes scenarios/demo.gcode)
